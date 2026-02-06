@@ -1,0 +1,55 @@
+[package]
+name = "vodozemac-wrapper-pqc"
+version = "1.0.0"
+edition = "2021"
+authors = ["Marcos Dantas <marcos.dantas@example.com>"]
+description = "Post-Quantum Extended Diffie-Hellman (PQXDH) implementation for Matrix Protocol"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/mdo-br/matrix_pqc"
+
+[dependencies]
+# Matrix cryptography
+vodozemac = "0.9.0"
+
+# Post-quantum cryptography
+pqcrypto-kyber = "0.8"
+pqcrypto-traits = "0.3"
+
+# Cryptographic primitives
+hkdf = "0.12"
+sha2 = "0.10"
+sha3 = "0.10"
+hmac = "0.12"
+x25519-dalek = { version = "2.0", features = ["zeroize", "reusable_secrets", "static_secrets"] }
+ed25519-dalek = { version = "2.0", features = ["zeroize"] }
+zeroize = { version = "1.7", features = ["derive"] }
+
+# Encoding and serialization
+base64 = "0.22"
+hex = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Command line interface
+clap = { version = "4.5", features = ["derive"] }
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Random number generation
+rand = "0.8"
+
+# Time and statistics
+time = { version = "0.3", features = ["formatting"] }
+chrono = "0.4"
+num_cpus = "1.16"
+
+# System information
+hostname = "0.4"
+sys-info = "0.9"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
