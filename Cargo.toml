@@ -4,7 +4,7 @@ version = "1.0.0"
 edition = "2021"
 authors = ["Marcos Dantas <marcos.dantas@example.com>"]
 description = "Post-Quantum Extended Diffie-Hellman (PQXDH) implementation for Matrix Protocol"
-license = "MIT OR Apache-2.0"
+license = "AGPL-3.0-only"
 repository = "https://github.com/mdo-br/matrix_pqc"
 
 [dependencies]

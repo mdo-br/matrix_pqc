@@ -22,6 +22,12 @@ venv/
 .DS_Store
 Thumbs.db
 
-# Results (opcionalmente pode incluir)
-# results/
-# *.csv
+# Dados brutos do experimento: versionados para reprodutibilidade (SeloD/SeloR)
+# Ignorar CSVs de execuções locais/testes; manter apenas o CSV do artigo
+results/resultados_experiment_*.csv
+
+# Artefatos gerados pelo script de análise
+tables_and_plots/
+
+# artigo SBRC
+SBRC_2026_Matrix_PQC/ 

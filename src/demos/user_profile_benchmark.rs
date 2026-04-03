@@ -787,7 +787,7 @@ pub fn run_paired_benchmark(user_id: &str, repetitions: usize, rotation_policy: 
     Ok(all_runs)
 }
 
-/// Salva runs pareados em formato long/tidy (para analyze_paired.py)
+/// Salva runs pareados em formato long/tidy (para analyze.py)
 pub fn save_paired_runs_csv(runs: &[PairedRun], filename: &str) -> Result<()> {
     use std::fs::File;
     use std::io::Write;
@@ -876,7 +876,7 @@ bandwidth_rotation_primitives_megolm_key,bandwidth_rotation_primitives_ratchet_k
     progress!(" Dados pareados (long/tidy) salvos: {}", filename);
     progress!("  (Formato: cada linha = uma sala em uma repetição)");
     progress!("  (Inclui hardware, rotação Megolm e largura de banda)");
-    progress!("  (Análise: python scripts/analyze_paired.py {})", filename);
+    progress!("  (Análise: python scripts/analyze.py {})", filename);
     Ok(())
 }
 
