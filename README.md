@@ -575,6 +575,7 @@ Os experimentos do artigo foram conduzidos no seguinte ambiente:
 Este projeto está licenciado sob **GNU Affero General Public License v3.0 (AGPLv3)**.
 
 - [AGPLv3 License](https://www.gnu.org/licenses/agpl-3.0.html)
+- [Arquivo LICENSE](./LICENSE) — cópia local da licença
 
 ---
 
