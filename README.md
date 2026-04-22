@@ -304,16 +304,20 @@ A primeira compilação pode levar **3–5 minutos** (download e compilação de
 
 ## Passo 5: Instalar dependências Python
 
-```bash
-pip3 install -r scripts/requirements.txt
-```
-
-Ou, se preferir ambiente virtual:
+**Recomendado** — ambiente virtual (evita conflitos com o sistema):
 
 ```bash
 python3 -m venv venv
 source venv/bin/activate
 pip install -r scripts/requirements.txt
+```
+
+Alternativamente, sem ambiente virtual:
+
+```bash
+pip3 install -r scripts/requirements.txt
+# ou, se pip3 não estiver disponível:
+python3 -m pip install -r scripts/requirements.txt
 ```
 
 ## Verificação rápida
