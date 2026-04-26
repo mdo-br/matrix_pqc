@@ -315,8 +315,6 @@ pip install -r scripts/requirements.txt
 Alternativamente, sem ambiente virtual:
 
 ```bash
-pip3 install -r scripts/requirements.txt
-# ou, se pip3 não estiver disponível:
 python3 -m pip install -r scripts/requirements.txt
 ```
 
