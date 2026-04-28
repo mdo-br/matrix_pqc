@@ -47,6 +47,51 @@ use std::collections::HashMap;
 use crate::utils::logging::VerbosityLevel;
 use crate::vlog;
 
+/// Helpers serde para serializar/desserializar material criptográfico como Base64 na fronteira JSON.
+/// Internamente os campos são bytes (`[u8; N]` ou `Vec<u8>`); Base64 aparece apenas no wire format.
+mod base64_serde {
+    use base64::{engine::general_purpose::STANDARD as B64, Engine};
+    use serde::{Deserializer, Serializer, Deserialize};
+
+    /// Serializa `[u8; 32]` como Base64; desserializa Base64 → `[u8; 32]`.
+    pub mod bytes_32 {
+        use super::*;
+        pub fn serialize<S: Serializer>(bytes: &[u8; 32], s: S) -> Result<S::Ok, S::Error> {
+            s.serialize_str(&B64.encode(bytes))
+        }
+        pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<[u8; 32], D::Error> {
+            let s = String::deserialize(d)?;
+            let v = B64.decode(&s).map_err(serde::de::Error::custom)?;
+            v.try_into().map_err(|_| serde::de::Error::custom("tamanho inválido: esperado [u8; 32]"))
+        }
+    }
+
+    /// Serializa `[u8; 64]` como Base64; desserializa Base64 → `[u8; 64]`.
+    pub mod bytes_64 {
+        use super::*;
+        pub fn serialize<S: Serializer>(bytes: &[u8; 64], s: S) -> Result<S::Ok, S::Error> {
+            s.serialize_str(&B64.encode(bytes))
+        }
+        pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<[u8; 64], D::Error> {
+            let s = String::deserialize(d)?;
+            let v = B64.decode(&s).map_err(serde::de::Error::custom)?;
+            v.try_into().map_err(|_| serde::de::Error::custom("tamanho inválido: esperado [u8; 64]"))
+        }
+    }
+
+    /// Serializa `Vec<u8>` como Base64; desserializa Base64 → `Vec<u8>`.
+    pub mod vec_bytes {
+        use super::*;
+        pub fn serialize<S: Serializer>(bytes: &[u8], s: S) -> Result<S::Ok, S::Error> {
+            s.serialize_str(&B64.encode(bytes))
+        }
+        pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<u8>, D::Error> {
+            let s = String::deserialize(d)?;
+            B64.decode(&s).map_err(serde::de::Error::custom)
+        }
+    }
+}
+
 /// Wrapper para KyberSecretKey que implementa Drop para zeroização.
 /// 
 /// Necessário porque pqcrypto-kyber não implementa Zeroize nativamente,
@@ -199,11 +244,13 @@ pub struct MatrixUser {
 pub struct SignedX25519Prekey {
     /// Identificador único da prekey no servidor
     pub key_id: String,
-    /// Chave pública X25519 codificada em Base64 (tamanho padrão X25519)
-    pub public_key: String,
-    /// Assinatura Ed25519 da chave pública codificada em Base64 (tamanho padrão Ed25519)
+    /// Chave pública X25519 em bytes (32 bytes); serializada como Base64 no wire format
+    #[serde(with = "base64_serde::bytes_32")]
+    pub public_key: [u8; 32],
+    /// Assinatura Ed25519 em bytes (64 bytes); serializada como Base64 no wire format
     /// Produzida pela chave de identidade para garantir autenticidade
-    pub signature: String,
+    #[serde(with = "base64_serde::bytes_64")]
+    pub signature: [u8; 64],
 }
 
 /// Prekey Kyber assinada para Matrix
@@ -214,12 +261,13 @@ pub struct SignedX25519Prekey {
 pub struct SignedKyberPrekey {
     /// Identificador único da prekey Kyber no servidor
     pub key_id: String,
-    /// Chave pública Kyber codificada em Base64 (tamanho varia conforme algoritmo selecionado)
-    /// exemplos: 1568 bytes para Kyber-1024, 1088 bytes para Kyber-768 e 736 bytes para Kyber-512
-    pub public_key: String,
-    /// Assinatura Ed25519 da chave pública codificada em Base64 (tamanho padrão Ed25519)
+    /// Chave pública Kyber em bytes (~1568 bytes para Kyber-1024); serializada como Base64 no wire format
+    #[serde(with = "base64_serde::vec_bytes")]
+    pub public_key: Vec<u8>,
+    /// Assinatura Ed25519 em bytes (64 bytes); serializada como Base64 no wire format
     /// Produzida pela chave de identidade para garantir autenticidade
-    pub signature: String,
+    #[serde(with = "base64_serde::bytes_64")]
+    pub signature: [u8; 64],
 }
 
 /// Mensagem de inicialização PQXDH para Matrix
@@ -237,27 +285,31 @@ pub struct MatrixPqxdhInitMessage {
     /// Fornece binding contextual específico do Matrix
     pub sender_user_id: String,
     
-    /// Chave pública de assinatura do remetente (Ed25519 em Base64)
+    /// Chave pública de assinatura do remetente (Ed25519, 32 bytes; Base64 no wire)
     /// Usada apenas para verificação de assinaturas, NÃO para operações DH
-    pub sender_signing_key: String,
+    #[serde(with = "base64_serde::bytes_32")]
+    pub sender_signing_key: [u8; 32],
     
-    /// Chave pública de identidade DH do remetente (Curve25519 em Base64)
+    /// Chave pública de identidade DH do remetente (Curve25519, 32 bytes; Base64 no wire)
     /// INDEPENDENTE da signing_key, gerada separadamente no modelo vodozemac
     /// Usada no primeiro acordo DH (dh1)
-    pub sender_dh_public_key: String,
+    #[serde(with = "base64_serde::bytes_32")]
+    pub sender_dh_public_key: [u8; 32],
     
-    /// Assinatura cross-key da chave DH do remetente (Ed25519 em Base64)
+    /// Assinatura cross-key da chave DH do remetente (Ed25519, 64 bytes; Base64 no wire)
     /// A signing_key Ed25519 assina a diffie_hellman_key Curve25519
     /// Garante binding criptográfico entre as duas identidades do remetente
-    /// Previne ataques de substituição de chaves
-    pub sender_dh_key_signature: String,
+    #[serde(with = "base64_serde::bytes_64")]
+    pub sender_dh_key_signature: [u8; 64],
     
-    /// Chave pública X25519 efêmera (Base64)
+    /// Chave pública X25519 efêmera (32 bytes; Base64 no wire)
     /// Gerada especificamente para este acordo de chaves
-    pub ephemeral_key: String,
-    /// Ciphertext Kyber resultante do encapsulamento (Base64)
+    #[serde(with = "base64_serde::bytes_32")]
+    pub ephemeral_key: [u8; 32],
+    /// Ciphertext Kyber resultante do encapsulamento (bytes variáveis; Base64 no wire)
     /// Contém segredo compartilhado encapsulado com a prekey Kyber do destinatário
-    pub kyber_ciphertext: String,
+    #[serde(with = "base64_serde::vec_bytes")]
+    pub kyber_ciphertext: Vec<u8>,
     /// ID da prekey X25519 utilizada do destinatário
     /// Permite ao destinatário localizar a chave privada correta
     pub used_x25519_prekey_id: String,
@@ -355,8 +407,8 @@ impl MatrixUser {
         let x25519_signature = signing_key.sign(x25519_public_key.as_bytes());
         let x25519_prekey = SignedX25519Prekey {
             key_id: format!("x25519_prekey_1"),
-            public_key: B64.encode(x25519_public_key.as_bytes()),
-            signature: B64.encode(x25519_signature.to_bytes()),
+            public_key: *x25519_public_key.as_bytes(),
+            signature: x25519_signature.to_bytes(),
         };
         
         // === GERAR PREKEY KYBER ===
@@ -365,8 +417,8 @@ impl MatrixUser {
         let kyber_signature = signing_key.sign(kyber_public_key.as_bytes());
         let kyber_prekey = SignedKyberPrekey {
             key_id: format!("kyber_prekey_1"),
-            public_key: B64.encode(kyber_public_key.as_bytes()),
-            signature: B64.encode(kyber_signature.to_bytes()),
+            public_key: kyber_public_key.as_bytes().to_vec(),
+            signature: kyber_signature.to_bytes(),
         };
         
         // === GERAR CHAVES ONE-TIME ===
@@ -417,7 +469,7 @@ impl MatrixUser {
             },
             "signatures": {
                 self.user_id.clone(): {
-                    format!("ed25519:{}", self.device_id): self.x25519_prekey.signature.clone()
+                    format!("ed25519:{}", self.device_id): B64.encode(self.x25519_prekey.signature)
                 }
             },
             "unsigned": {
@@ -627,11 +679,11 @@ pub fn init_pqxdh_with_rng<R: CryptoRng + RngCore>(
     
     let init_message = MatrixPqxdhInitMessage {
         sender_user_id: alice.user_id.clone(),
-        sender_signing_key: B64.encode(alice.signing_public_key.as_bytes()),
-        sender_dh_public_key: B64.encode(alice.dh_public_key.as_bytes()),
-        sender_dh_key_signature: B64.encode(alice.dh_key_signature.to_bytes()),
-        ephemeral_key: B64.encode(ephemeral_public.as_bytes()),
-        kyber_ciphertext: B64.encode(ciphertext.as_bytes()),
+        sender_signing_key: *alice.signing_public_key.as_bytes(),
+        sender_dh_public_key: *alice.dh_public_key.as_bytes(),
+        sender_dh_key_signature: alice.dh_key_signature.to_bytes(),
+        ephemeral_key: *ephemeral_public.as_bytes(),
+        kyber_ciphertext: ciphertext.as_bytes().to_vec(),
         used_x25519_prekey_id: bob_public_keys["prekeys"]["x25519"]["key_id"].as_str().unwrap_or("unknown").to_string(),
         used_kyber_prekey_id: bob_public_keys["prekeys"]["kyber1024"]["key_id"].as_str().unwrap_or("unknown").to_string(),
         used_one_time_key_id: used_otk_id.clone(),
@@ -675,25 +727,17 @@ pub fn init_pqxdh_with_rng<R: CryptoRng + RngCore>(
 pub fn complete_pqxdh(bob: &mut MatrixUser, init_message: &MatrixPqxdhInitMessage) -> Result<[u8; 32]> {
     // Analisar chave de assinatura da Alice (Ed25519)
     let alice_signing_key = {
-        let key_bytes = B64.decode(&init_message.sender_signing_key)?;
-        VerifyingKey::from_bytes(&key_bytes.try_into().map_err(|_| anyhow::anyhow!("Invalid key length"))?)?
+        VerifyingKey::from_bytes(&init_message.sender_signing_key)?
     };
     
     // Analisar chave DH de identidade da Alice (Curve25519 INDEPENDENTE)
-    let alice_dh_public_key = {
-        let key_bytes = B64.decode(&init_message.sender_dh_public_key)?;
-        let key_array: [u8; 32] = key_bytes.try_into().map_err(|_| anyhow::anyhow!("Invalid key length"))?;
-        X25519PublicKey::from(key_array)
-    };
+    let alice_dh_public_key = X25519PublicKey::from(init_message.sender_dh_public_key);
     
     // VALIDAÇÃO: Verificar cross-signature da chave DH
     // A Alice deve ter assinado sua chave DH (Curve25519) com sua signing key (Ed25519)
     // Isso garante binding criptográfico entre as duas chaves de identidade
     // e previne ataques onde adversário substitui a chave DH mantendo a signing key legítima
-    let dh_sig_bytes = B64.decode(&init_message.sender_dh_key_signature)?;
-    let dh_sig_array: [u8; 64] = dh_sig_bytes.try_into()
-        .map_err(|_| anyhow::anyhow!("Invalid signature length"))?;
-    let dh_signature = Signature::from_bytes(&dh_sig_array);
+    let dh_signature = Signature::from_bytes(&init_message.sender_dh_key_signature);
     
     match alice_signing_key.verify_strict(alice_dh_public_key.as_bytes(), &dh_signature) {
         Ok(_) => {
@@ -707,11 +751,7 @@ pub fn complete_pqxdh(bob: &mut MatrixUser, init_message: &MatrixPqxdhInitMessag
     }
     
     // Analisar chave efêmera
-    let ephemeral_key = {
-        let key_bytes = B64.decode(&init_message.ephemeral_key)?;
-        let key_array: [u8; 32] = key_bytes.try_into().map_err(|_| anyhow::anyhow!("Invalid key length"))?;
-        X25519PublicKey::from(key_array)
-    };
+    let ephemeral_key = X25519PublicKey::from(init_message.ephemeral_key);
     
     // Obter OTK pública do storage ANTES de consumir (para o KDF)
     let bob_otk_bytes = init_message.used_one_time_key_id
@@ -726,8 +766,7 @@ pub fn complete_pqxdh(bob: &mut MatrixUser, init_message: &MatrixPqxdhInitMessag
     };
 
     // Desencapsular ciphertext Kyber
-    let ciphertext_bytes = B64.decode(&init_message.kyber_ciphertext)?;
-    let ciphertext = KyberCiphertext::from_bytes(&ciphertext_bytes)
+    let ciphertext = KyberCiphertext::from_bytes(&init_message.kyber_ciphertext)
         .map_err(|_| anyhow::anyhow!("Invalid Kyber ciphertext"))?;
     
     let shared_secret_kyber = kyber1024::decapsulate(&ciphertext, &bob.kyber_prekey_private);
@@ -747,10 +786,6 @@ pub fn complete_pqxdh(bob: &mut MatrixUser, init_message: &MatrixPqxdhInitMessag
     let dh4 = otk_private.as_ref().map(|otk| otk.diffie_hellman(&ephemeral_key));
     
     // Derivar chave de sessão com Associated Data completo
-    // Decodificar chaves públicas de Bob para binding
-    let bob_x25519_prekey_bytes = B64.decode(&bob.x25519_prekey.public_key)?;
-    let bob_kyber_prekey_bytes = B64.decode(&bob.kyber_prekey.public_key)?;
-    
     let session_key = matrix_pqxdh_kdf(
         // Segredos compartilhados
         dh1.as_bytes(),
@@ -762,8 +797,8 @@ pub fn complete_pqxdh(bob: &mut MatrixUser, init_message: &MatrixPqxdhInitMessag
         // IMPORTANTE: Usar DH public keys (Curve25519), não signing keys (Ed25519)
         alice_dh_public_key.as_bytes(),  // Chave DH de Alice (Curve25519)
         bob.dh_public_key.as_bytes(),     // Chave DH de Bob (Curve25519)
-        &bob_x25519_prekey_bytes,
-        &bob_kyber_prekey_bytes,
+        &bob.x25519_prekey.public_key,
+        &bob.kyber_prekey.public_key,
         bob_otk_bytes.as_ref().map(|b| b.as_slice()),
         ephemeral_key.as_bytes(),
         // Contexto Matrix
