@@ -468,8 +468,18 @@ python3 scripts/analyze.py results/resultados_experiment_[TIMESTAMP].csv
 
 Na análise **"Time by Phase"**, observar:
 
-- **`setup_time_ms`**: overhead ≈ +192% a +223% dependendo do tipo de sala (Hybrid adiciona operações PQXDH com Kyber-1024)
-- **`rotation_time_ms`**: overhead ≈ +76% a +137% dependendo do tipo de sala (rotações usam Kyber-768, mais leve; agregado ≈ +133%)
+- **`setup_time_ms`**: overhead por tipo de sala (Hybrid adiciona operações PQXDH com Kyber-1024):
+  - DM (N=2): ≈ +190%
+  - SmallGroup (N=7): ≈ +217%
+  - MediumGroup (N=25): ≈ +223%
+  - LargeChannel (N=150): ≈ +221%
+  - Intervalo: **+190% a +223%**
+- **`rotation_time_ms`**: overhead por tipo de sala (rotações usam Kyber-768, mais leve):
+  - DM (N=2): ≈ +98%
+  - SmallGroup (N=7): ≈ +115%
+  - MediumGroup (N=25): ≈ +142%
+  - LargeChannel (N=150): ≈ +133%
+  - Intervalo: **+98% a +142%**; agregado ≈ +133%
 - **`encrypt_steady_state_ms`**: overhead ≈ 0% (Megolm AES-256 não é alterado)
 - Em valores absolutos, o overhead por evento PQC varia de ≈16 ms (rotação individual em LargeChannel) a ≈100 ms (setup em salas grandes)
 

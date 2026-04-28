@@ -777,90 +777,148 @@ pub fn run_paired_benchmark(user_id: &str, repetitions: usize, rotation_policy: 
 
 /// Salva runs pareados em formato long/tidy (para analyze.py)
 pub fn save_paired_runs_csv(runs: &[PairedRun], filename: &str) -> Result<()> {
-    use std::fs::File;
-    use std::io::Write;
-    
-    let mut file = File::create(filename)?;
-    
-    // Cabeçalho CSV estendido com hardware, rotação, bandwidth e PRIMITIVAS
-    writeln!(file, "batch_id,pair_id,repeat_id,user_profile,room_id,room_type,member_count,crypto_mode,\
-room_creation_ms,add_members_ms,session_setup_ms,message_encrypt_ms,message_encrypt_pure_ms,message_decrypt_ms,total_setup_ms,\
-setup_time_ms,rotation_time_ms,encrypt_steady_state_ms,\
-device_type,architecture,cpu_cores,cpu_freq_mhz,\
-rotation_policy,actual_rotations,\
-kem_handshake_bytes,olm_session_bytes,megolm_session_bytes,message_overhead_bytes,total_bandwidth_bytes,\
-num_ratchet_advances,num_asymmetric_advances,num_rotation_messages,\
-bandwidth_agreement,bandwidth_agreement_classical,bandwidth_agreement_pqc,\
-bandwidth_initial_distribution,bandwidth_initial_distribution_classical,bandwidth_initial_distribution_pqc,\
-bandwidth_rotation,bandwidth_rotation_classical,bandwidth_rotation_pqc,\
-bandwidth_megolm_messages,bandwidth_control_plane,bandwidth_data_plane,\
-bandwidth_agreement_primitives_identity_keys,bandwidth_agreement_primitives_otk,bandwidth_agreement_primitives_kyber1024,bandwidth_agreement_primitives_prekey_overhead,\
-bandwidth_initial_distribution_primitives_megolm_key,bandwidth_initial_distribution_primitives_ratchet_key,bandwidth_initial_distribution_primitives_kem_ct,bandwidth_initial_distribution_primitives_olm_overhead,\
-bandwidth_rotation_primitives_megolm_key,bandwidth_rotation_primitives_ratchet_key,bandwidth_rotation_primitives_kem_ct,bandwidth_rotation_primitives_olm_overhead")?;
-    
-    // Cada run com suas salas
+    /// Linha CSV achata PairedRun + RoomBenchmark num único struct.
+    /// Derivar Serialize garante que cabeçalho e ordem de campos sejam
+    /// mantidos em sincronia pelo compilador — sem writeln! manual propenso
+    /// a desalinhamentos silenciosos.
+    #[derive(Serialize)]
+    struct CsvRow<'a> {
+        // Identificadores do par
+        batch_id: &'a str,
+        pair_id: &'a str,
+        repeat_id: u32,
+        user_profile: &'a str,
+        // Identificadores da sala
+        room_id: &'a str,
+        room_type: &'a str,
+        member_count: usize,
+        crypto_mode: &'a str,
+        // Métricas de tempo (agregadas — compatibilidade)
+        room_creation_ms: f64,
+        add_members_ms: f64,
+        session_setup_ms: f64,
+        message_encrypt_ms: f64,
+        message_encrypt_pure_ms: f64,
+        message_decrypt_ms: f64,
+        total_setup_ms: f64,
+        // Métricas de tempo separadas por fase
+        setup_time_ms: f64,
+        rotation_time_ms: f64,
+        encrypt_steady_state_ms: f64,
+        // Perfil de hardware
+        device_type: &'a str,
+        architecture: &'a str,
+        cpu_cores: usize,
+        cpu_freq_mhz: u32,
+        // Política de rotação
+        rotation_policy: &'a str,
+        actual_rotations: usize,
+        // Bytes de largura de banda (legado)
+        kem_handshake_bytes: usize,
+        olm_session_bytes: usize,
+        megolm_session_bytes: usize,
+        message_overhead_bytes: usize,
+        total_bandwidth_bytes: usize,
+        // Double Ratchet
+        num_ratchet_advances: usize,
+        num_asymmetric_advances: usize,
+        num_rotation_messages: usize,
+        // Bandwidth por fase
+        bandwidth_agreement: usize,
+        bandwidth_agreement_classical: usize,
+        bandwidth_agreement_pqc: usize,
+        bandwidth_initial_distribution: usize,
+        bandwidth_initial_distribution_classical: usize,
+        bandwidth_initial_distribution_pqc: usize,
+        bandwidth_rotation: usize,
+        bandwidth_rotation_classical: usize,
+        bandwidth_rotation_pqc: usize,
+        bandwidth_megolm_messages: usize,
+        bandwidth_control_plane: usize,
+        bandwidth_data_plane: usize,
+        // Primitivas isoladas — Agreement
+        bandwidth_agreement_primitives_identity_keys: usize,
+        bandwidth_agreement_primitives_otk: usize,
+        bandwidth_agreement_primitives_kyber1024: usize,
+        bandwidth_agreement_primitives_prekey_overhead: usize,
+        // Primitivas isoladas — Initial Distribution
+        bandwidth_initial_distribution_primitives_megolm_key: usize,
+        bandwidth_initial_distribution_primitives_ratchet_key: usize,
+        bandwidth_initial_distribution_primitives_kem_ct: usize,
+        bandwidth_initial_distribution_primitives_olm_overhead: usize,
+        // Primitivas isoladas — Rotation
+        bandwidth_rotation_primitives_megolm_key: usize,
+        bandwidth_rotation_primitives_ratchet_key: usize,
+        bandwidth_rotation_primitives_kem_ct: usize,
+        bandwidth_rotation_primitives_olm_overhead: usize,
+    }
+
+    let mut wtr = csv::Writer::from_path(filename)?;
+
     for run in runs {
         for room in &run.rooms {
-            writeln!(file, "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
-                room.batch_id,
-                room.pair_id,
-                room.repeat_id,
-                run.user_profile,
-                room.room_id,
-                room.room_type,
-                room.member_count,
-                room.crypto_mode,
-                room.room_creation_ms,
-                room.add_members_ms,
-                room.session_setup_ms,
-                room.message_encrypt_ms,
-                room.message_encrypt_pure_ms,
-                room.message_decrypt_ms,
-                room.total_setup_ms,
-                room.setup_time_ms,
-                room.rotation_time_ms,
-                room.encrypt_steady_state_ms,
-                room.device_type,
-                room.architecture,
-                room.cpu_cores,
-                room.cpu_freq_mhz,
-                room.rotation_policy,
-                room.actual_rotations,
-                room.kem_handshake_bytes,
-                room.olm_session_bytes,
-                room.megolm_session_bytes,
-                room.message_overhead_bytes,
-                room.total_bandwidth_bytes,
-                room.num_ratchet_advances,
-                room.num_asymmetric_advances,
-                room.num_rotation_messages,
-                room.bandwidth_agreement,
-                room.bandwidth_agreement_classical,
-                room.bandwidth_agreement_pqc,
-                room.bandwidth_initial_distribution,
-                room.bandwidth_initial_distribution_classical,
-                room.bandwidth_initial_distribution_pqc,
-                room.bandwidth_rotation,
-                room.bandwidth_rotation_classical,
-                room.bandwidth_rotation_pqc,
-                room.bandwidth_megolm_messages,
-                room.bandwidth_control_plane,
-                room.bandwidth_data_plane,
-                room.bandwidth_agreement_primitives_identity_keys,
-                room.bandwidth_agreement_primitives_otk,
-                room.bandwidth_agreement_primitives_kyber1024,
-                room.bandwidth_agreement_primitives_prekey_overhead,
-                room.bandwidth_initial_distribution_primitives_megolm_key,
-                room.bandwidth_initial_distribution_primitives_ratchet_key,
-                room.bandwidth_initial_distribution_primitives_kem_ct,
-                room.bandwidth_initial_distribution_primitives_olm_overhead,
-                room.bandwidth_rotation_primitives_megolm_key,
-                room.bandwidth_rotation_primitives_ratchet_key,
-                room.bandwidth_rotation_primitives_kem_ct,
-                room.bandwidth_rotation_primitives_olm_overhead)?;
+            wtr.serialize(CsvRow {
+                batch_id: &run.batch_id,
+                pair_id: &run.pair_id,
+                repeat_id: run.repeat_id,
+                user_profile: &run.user_profile,
+                room_id: &room.room_id,
+                room_type: &room.room_type,
+                member_count: room.member_count,
+                crypto_mode: &room.crypto_mode,
+                room_creation_ms: room.room_creation_ms,
+                add_members_ms: room.add_members_ms,
+                session_setup_ms: room.session_setup_ms,
+                message_encrypt_ms: room.message_encrypt_ms,
+                message_encrypt_pure_ms: room.message_encrypt_pure_ms,
+                message_decrypt_ms: room.message_decrypt_ms,
+                total_setup_ms: room.total_setup_ms,
+                setup_time_ms: room.setup_time_ms,
+                rotation_time_ms: room.rotation_time_ms,
+                encrypt_steady_state_ms: room.encrypt_steady_state_ms,
+                device_type: &room.device_type,
+                architecture: &room.architecture,
+                cpu_cores: room.cpu_cores,
+                cpu_freq_mhz: room.cpu_freq_mhz,
+                rotation_policy: &room.rotation_policy,
+                actual_rotations: room.actual_rotations,
+                kem_handshake_bytes: room.kem_handshake_bytes,
+                olm_session_bytes: room.olm_session_bytes,
+                megolm_session_bytes: room.megolm_session_bytes,
+                message_overhead_bytes: room.message_overhead_bytes,
+                total_bandwidth_bytes: room.total_bandwidth_bytes,
+                num_ratchet_advances: room.num_ratchet_advances,
+                num_asymmetric_advances: room.num_asymmetric_advances,
+                num_rotation_messages: room.num_rotation_messages,
+                bandwidth_agreement: room.bandwidth_agreement,
+                bandwidth_agreement_classical: room.bandwidth_agreement_classical,
+                bandwidth_agreement_pqc: room.bandwidth_agreement_pqc,
+                bandwidth_initial_distribution: room.bandwidth_initial_distribution,
+                bandwidth_initial_distribution_classical: room.bandwidth_initial_distribution_classical,
+                bandwidth_initial_distribution_pqc: room.bandwidth_initial_distribution_pqc,
+                bandwidth_rotation: room.bandwidth_rotation,
+                bandwidth_rotation_classical: room.bandwidth_rotation_classical,
+                bandwidth_rotation_pqc: room.bandwidth_rotation_pqc,
+                bandwidth_megolm_messages: room.bandwidth_megolm_messages,
+                bandwidth_control_plane: room.bandwidth_control_plane,
+                bandwidth_data_plane: room.bandwidth_data_plane,
+                bandwidth_agreement_primitives_identity_keys: room.bandwidth_agreement_primitives_identity_keys,
+                bandwidth_agreement_primitives_otk: room.bandwidth_agreement_primitives_otk,
+                bandwidth_agreement_primitives_kyber1024: room.bandwidth_agreement_primitives_kyber1024,
+                bandwidth_agreement_primitives_prekey_overhead: room.bandwidth_agreement_primitives_prekey_overhead,
+                bandwidth_initial_distribution_primitives_megolm_key: room.bandwidth_initial_distribution_primitives_megolm_key,
+                bandwidth_initial_distribution_primitives_ratchet_key: room.bandwidth_initial_distribution_primitives_ratchet_key,
+                bandwidth_initial_distribution_primitives_kem_ct: room.bandwidth_initial_distribution_primitives_kem_ct,
+                bandwidth_initial_distribution_primitives_olm_overhead: room.bandwidth_initial_distribution_primitives_olm_overhead,
+                bandwidth_rotation_primitives_megolm_key: room.bandwidth_rotation_primitives_megolm_key,
+                bandwidth_rotation_primitives_ratchet_key: room.bandwidth_rotation_primitives_ratchet_key,
+                bandwidth_rotation_primitives_kem_ct: room.bandwidth_rotation_primitives_kem_ct,
+                bandwidth_rotation_primitives_olm_overhead: room.bandwidth_rotation_primitives_olm_overhead,
+            })?;
         }
     }
-    
+
+    wtr.flush()?;
     progress!(" Dados pareados (long/tidy) salvos: {}", filename);
     progress!("  (Formato: cada linha = uma sala em uma repetição)");
     progress!("  (Inclui hardware, rotação Megolm e largura de banda)");
