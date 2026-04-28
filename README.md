@@ -38,6 +38,8 @@ Este artefato foi preparado para concorrer aos seguintes selos de avaliação do
 - **Sustentáveis (SeloS)**: O código é modular, bem estruturado (traits, providers, módulos separados) e documentado para facilitar extensão e reutilização pela comunidade.
 - **Reprodutíveis (SeloR)**: As instruções permitem reproduzir os resultados quantitativos do artigo, com análise estatística pareada automatizada (Wilcoxon signed-rank, intervalos de confiança a 95%, correção de Holm–Bonferroni).
 
+> **Nota de reprodutibilidade**: Os dados experimentais foram gerados com o commit [`d11365a`](https://github.com/mdo-br/matrix_pqc/commit/d11365a9849a98c37756c1d5382201336e818cdf) (*Initial commit*). O arquivo `results/user_profile_runs_20260201_124053_all_policies.csv` incluso no repositório é o conjunto de dados canônico gerado naquele commit. Commits posteriores corrigem advertências do compilador e a verbosidade do script de análise sem alterar o código de medição nem os dados coletados.
+
 ---
 
 # Informações Básicas
@@ -275,10 +277,15 @@ sudo apt install -y build-essential pkg-config git curl python3 python3-pip pyth
 
 ## Passo 2: Instalar Rust (se necessário)
 
+**Opção A — via gerenciador de pacotes (recomendado):**
+
 ```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-source "$HOME/.cargo/env"
+sudo apt install -y rustc cargo
 ```
+
+**Opção B — via rustup (versão mais recente):**
+
+Se precisar de uma versão específica do Rust ou a versão do apt for inferior a 1.70.0, use o [rustup](https://rustup.rs) ([documentação oficial](https://rust-lang.github.io/rustup/installation/index.html)). Nesse caso, é recomendável inspecionar o script antes de executá-lo ([veja por quê](https://stackoverflow.com/questions/29382739/why-using-curl-sudo-sh-is-not-advised)):
 
 Verificar instalação:
 
