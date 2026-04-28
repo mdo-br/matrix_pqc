@@ -166,11 +166,6 @@ impl VodoCryptoHybrid {
     pub fn set_pqxdh_init_message(&mut self, init_message: crate::core::pqxdh::MatrixPqxdhInitMessage) {
         self.pqxdh_init_message = Some(init_message);
     }
-
-    /// Obtém mensagem PQXDH gerada (usado no outbound)
-    pub fn get_pqxdh_init_message(&self) -> Option<&crate::core::pqxdh::MatrixPqxdhInitMessage> {
-        self.pqxdh_init_message.as_ref()
-    }
 }
 
 impl CryptoProvider for VodoCryptoHybrid {
@@ -768,82 +763,5 @@ impl CryptoProvider for VodoCryptoHybrid {
             .decrypt(&msg)
             .map_err(|_| CryptoError::Protocol)?;
         Ok(decrypted.plaintext)
-    }
-
-    /// Estima overhead de mensagem criptografada
-    fn estimate_message_overhead(&self, ciphertext_b64: &str) -> usize {
-        (ciphertext_b64.len() * 3) / 4
-    }
-
-    /// Retorna estatísticas da última operação de acordo de chaves
-    fn last_key_agreement_stats(&self) -> KeyAgreementStats {
-        self.last_stats.clone()
-    }
-    
-    /// Obtém estatísticas detalhadas de operações PQC
-    fn detailed_pqc_stats(&self) -> DetailedPqcStats {
-        DetailedPqcStats::default()
-    }
-    
-    /// Criptografa mensagem Olm com coleta de métricas de performance
-    /// 
-    /// Retorna tupla: (ciphertext, estatísticas de operação)
-    /// Útil para benchmarking e análise de overhead PQC.
-    fn olm_encrypt_instrumented(&mut self, session: &mut OlmSessionHandle, plaintext: &[u8]) -> (String, PqcOperationStats) {
-        use std::time::Instant;
-        
-        let start_total = Instant::now();
-        let mut stats = PqcOperationStats::default();
-        
-        if session.pqc_enabled {
-            let kem_start = Instant::now();
-            
-            // Capturar estado inicial para detectar avanço do ratchet
-            let initial_message_count = session.hybrid_session.get_session_stats().total_messages;
-            
-            // Criptografar com Double Ratchet PQC
-            let result = match session.hybrid_session.encrypt_hybrid(plaintext) {
-                Ok(pqc_msg) => {
-                    stats.kem_time_ms = kem_start.elapsed().as_secs_f64() * 1000.0;
-                    
-                    let ser_start = Instant::now();
-                    let transport = pqc_msg.to_transport_string();
-                    stats.serialization_time_ms = ser_start.elapsed().as_secs_f64() * 1000.0;
-                    
-                    transport
-                }
-                Err(e) => {
-                    // FALLBACK CRÍTICO: PQC encrypt falhou
-                    vlog!(VerbosityLevel::Normal, "FALLBACK CRÍTICO em olm_encrypt: encrypt_hybrid falhou ({:?})", e);
-                    vlog!(VerbosityLevel::Normal, "Caindo para modo clássico - isso NÃO deveria acontecer!");
-                    let message = session.hybrid_session.encrypt_classic(plaintext);
-                    match message {
-                        vodozemac::olm::OlmMessage::PreKey(m) => base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &m.to_bytes()),
-                        vodozemac::olm::OlmMessage::Normal(m) => base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &m.to_bytes()),
-                    }
-                }
-            };
-            
-            // Verificar se houve avanço do ratchet
-            let final_message_count = session.hybrid_session.get_session_stats().total_messages;
-            stats.ratchet_advanced = final_message_count != initial_message_count;
-            
-            stats.total_time_ms = start_total.elapsed().as_secs_f64() * 1000.0;
-            stats.message_overhead_bytes = result.len().saturating_sub(plaintext.len());
-            stats.kem_algorithm = Some(KemAlgorithm::from(self.kem_choice));
-            (result, stats)
-        } else {
-            // Modo clássico - sem overhead PQC
-            let message = session.hybrid_session.encrypt_classic(plaintext);
-            let result = match message {
-                vodozemac::olm::OlmMessage::PreKey(m) => base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &m.to_bytes()),
-                vodozemac::olm::OlmMessage::Normal(m) => base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &m.to_bytes()),
-            };
-            
-            stats.total_time_ms = start_total.elapsed().as_secs_f64() * 1000.0;
-            stats.message_overhead_bytes = result.len().saturating_sub(plaintext.len());
-            stats.kem_algorithm = None;
-            (result, stats)
-        }
     }
 }

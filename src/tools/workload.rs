@@ -419,13 +419,11 @@ mod tests {
         // Gerar 100 mensagens e verificar distribuição aproximada
         let mut text_count = 0;
         let mut image_count = 0;
-        let mut voice_count = 0;
         
         for _ in 0..100 {
             match gen.generate_message() {
                 MessageType::Text(_) => text_count += 1,
                 MessageType::Image(_) => image_count += 1,
-                MessageType::Voice(_) => voice_count += 1,
                 _ => {}
             }
         }

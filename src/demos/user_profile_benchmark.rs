@@ -90,7 +90,6 @@ impl RotationMetrics {
             RotationPolicy::PQ3 => "PQ3",
             RotationPolicy::Balanced => "Balanced",
             RotationPolicy::Relaxed => "Relaxed",
-            RotationPolicy::Custom => "Custom",
         }.to_string();
         
         Self {
@@ -712,17 +711,6 @@ pub struct PairedRun {
     pub rooms: Vec<RoomBenchmark>,
 }
 
-/// Resultados agregados (compatibilidade com código antigo)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ComparativeResults {
-    pub user_profile: String,
-    pub timestamp: String,
-    pub classical: ProfileBenchmark,
-    pub hybrid: ProfileBenchmark,
-    pub setup_overhead_pct: f64,
-    pub encrypt_overhead_pct: f64,
-}
-
 /// Executa benchmark pareado com N repetições
 /// 
 /// DESIGN PAREADO (Caminho B):
@@ -877,142 +865,5 @@ bandwidth_rotation_primitives_megolm_key,bandwidth_rotation_primitives_ratchet_k
     progress!("  (Formato: cada linha = uma sala em uma repetição)");
     progress!("  (Inclui hardware, rotação Megolm e largura de banda)");
     progress!("  (Análise: python scripts/analyze.py {})", filename);
-    Ok(())
-}
-
-/// Função de compatibilidade (mantém API antiga)
-pub fn run_comparative_benchmark(user_id: &str) -> Result<ComparativeResults> {
-    println!("\n=== Benchmark de Perfil de Usuário - Modo Legado ===\n");
-    println!("NOTA: Esta função usa apenas 1 repetição.");
-    println!("      Para análise pareada robusta, use run_paired_benchmark()\n");
-    
-    let profile = UserProfile::typical(user_id);
-    let batch_id = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
-    
-    println!("Perfil: {}", profile.user_id);
-    println!("  Salas: {}", profile.total_rooms());
-    println!("  Sessões Olm: {}\n", profile.total_olm_sessions());
-    
-    println!("Benchmarking Classical...");
-    let classical = benchmark_profile(&batch_id, "pair_0", 0, &profile, CryptoMode::Classical, RotationPolicy::Balanced)?;
-    
-    println!("\nBenchmarking Hybrid...");
-    let hybrid = benchmark_profile(&batch_id, "pair_0", 1, &profile, CryptoMode::Hybrid, RotationPolicy::Balanced)?;
-    
-    let setup_overhead = ((hybrid.total_setup_ms - classical.total_setup_ms) 
-        / classical.total_setup_ms) * 100.0;
-    
-    let encrypt_overhead = ((hybrid.avg_message_encrypt_ms - classical.avg_message_encrypt_ms) 
-        / classical.avg_message_encrypt_ms) * 100.0;
-    
-    Ok(ComparativeResults {
-        user_profile: profile.user_id,
-        timestamp: chrono::Utc::now().to_rfc3339(),
-        classical,
-        hybrid,
-        setup_overhead_pct: setup_overhead,
-        encrypt_overhead_pct: encrypt_overhead,
-    })
-}
-
-pub fn display_results(results: &ComparativeResults) {
-    println!("\n=== Resultados - Hardware Real ===\n");
-    
-    println!("Sistema:");
-    println!("  Hostname: {}", results.classical.hostname);
-    println!("  CPU: {}", results.classical.cpu_info);
-    println!("  Cores: {}\n", results.classical.num_cpus);
-    
-    println!("Perfil: {}", results.user_profile);
-    println!("  Salas: {}", results.classical.total_rooms);
-    println!("  Sessoes OLM: {}\n", results.classical.total_olm_sessions);
-    
-    println!("--- Setup Total (ms) ---");
-    println!("Classical: {:.2}ms", results.classical.total_setup_ms);
-    println!("Hybrid:    {:.2}ms (+{:.1}%)", 
-             results.hybrid.total_setup_ms, results.setup_overhead_pct);
-    println!();
-    
-    println!("--- Mensagens (ms/msg) ---");
-    println!("Encrypt (com gerenciamento de sala):");
-    println!("  Classical: {:.4}ms", results.classical.avg_message_encrypt_ms);
-    println!("  Hybrid:    {:.4}ms (+{:.1}%)", 
-             results.hybrid.avg_message_encrypt_ms, results.encrypt_overhead_pct);
-    println!();
-    
-    // Calcular médias de encrypt puro
-    let classical_pure_avg: f64 = results.classical.rooms.iter()
-        .map(|r| r.message_encrypt_pure_ms)
-        .sum::<f64>() / results.classical.rooms.len() as f64;
-    let hybrid_pure_avg: f64 = results.hybrid.rooms.iter()
-        .map(|r| r.message_encrypt_pure_ms)
-        .sum::<f64>() / results.hybrid.rooms.len() as f64;
-    let pure_overhead = ((hybrid_pure_avg - classical_pure_avg) / classical_pure_avg) * 100.0;
-    
-    println!("Encrypt PURO (apenas Megolm, sem gerenciamento):");
-    println!("  Classical: {:.4}ms", classical_pure_avg);
-    println!("  Hybrid:    {:.4}ms ({:+.1}%)", hybrid_pure_avg, pure_overhead);
-    println!();
-    
-    println!("Decrypt:");
-    println!("  Classical: {:.4}ms", results.classical.avg_message_decrypt_ms);
-    println!("  Hybrid:    {:.4}ms", results.hybrid.avg_message_decrypt_ms);
-    println!();
-    
-    println!("--- Breakdown por Tipo de Sala ---");
-    println!("+---------------+-----------+-----------+----------+");
-    println!("| Tipo          | Classical | Hybrid    | Overhead |");
-    println!("+---------------+-----------+-----------+----------+");
-    
-    for i in 0..results.classical.rooms.len() {
-        let c = &results.classical.rooms[i];
-        let h = &results.hybrid.rooms[i];
-        let overhead = ((h.total_setup_ms - c.total_setup_ms) / c.total_setup_ms) * 100.0;
-        
-        println!("| {:<13} | {:>7.2}ms | {:>7.2}ms | {:>6.1}% |",
-                 c.room_type, c.total_setup_ms, h.total_setup_ms, overhead);
-    }
-    println!("+---------------+-----------+-----------+----------+");
-}
-
-pub fn save_results_json(results: &ComparativeResults, filename: &str) -> Result<()> {
-    let json = serde_json::to_string_pretty(results)?;
-    std::fs::write(filename, json)?;
-    println!("Salvo: {}", filename);
-    Ok(())
-}
-
-pub fn save_results_csv(results: &ComparativeResults, filename: &str) -> Result<()> {
-    use std::fs::File;
-    use std::io::Write;
-    
-    let mut file = File::create(filename)?;
-    
-    writeln!(file, "batch_id,pair_id,repeat_id,crypto_mode,room_type,member_count,room_creation_ms,add_members_ms,session_setup_ms,message_encrypt_ms,message_encrypt_pure_ms,message_decrypt_ms,total_setup_ms")?;
-    
-    let write_rooms = |file: &mut File, profile: &ProfileBenchmark| -> Result<()> {
-        for room in &profile.rooms {
-            writeln!(file, "{},{},{},{},{},{},{},{},{},{},{},{},{}",
-                room.batch_id,
-                room.pair_id,
-                room.repeat_id,
-                room.crypto_mode,
-                room.room_type,
-                room.member_count,
-                room.room_creation_ms,
-                room.add_members_ms,
-                room.session_setup_ms,
-                room.message_encrypt_ms,
-                room.message_encrypt_pure_ms,
-                room.message_decrypt_ms,
-                room.total_setup_ms)?;
-        }
-        Ok(())
-    };
-    
-    write_rooms(&mut file, &results.classical)?;
-    write_rooms(&mut file, &results.hybrid)?;
-    
-    println!("Salvo: {}", filename);
     Ok(())
 }

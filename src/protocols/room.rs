@@ -18,9 +18,6 @@ use crate::vlog;
 /// Identificador único de usuário Matrix
 pub type UserId = String;
 
-/// Identificador de sessão Olm entre dois usuários
-pub type SessionId = String;
-
 /// Política de rotação de chaves Megolm (presets para experimentos)
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum RotationPolicy {
@@ -47,9 +44,6 @@ pub enum RotationPolicy {
     /// - Sem rotação automática em mudanças de membros
     /// - Uso: Ambientes com restrições de banda/processamento
     Relaxed,
-    
-    /// Custom: Configuração personalizada
-    Custom,
 }
 
 impl RotationPolicy {
@@ -80,7 +74,6 @@ impl RotationPolicy {
                 rotate_on_member_join: false,
                 rotate_on_member_leave: false,
             },
-            RotationPolicy::Custom => RotationConfig::default(),
         }
     }
 }
@@ -101,29 +94,13 @@ pub struct RotationConfig {
     /// Rotação quando novo membro entra
     pub rotate_on_member_join: bool,
     /// Rotação quando membro sai
+    #[allow(dead_code)]
     pub rotate_on_member_leave: bool,
 }
 
 impl Default for RotationConfig {
     fn default() -> Self {
         RotationPolicy::Balanced.to_config()
-    }
-}
-
-impl RotationConfig {
-    /// Cria configuração a partir de política
-    pub fn from_policy(policy: RotationPolicy) -> Self {
-        policy.to_config()
-    }
-    
-    /// Cria configuração personalizada
-    pub fn custom(max_messages: usize, max_age_ms: u64, rotate_on_join: bool, rotate_on_leave: bool) -> Self {
-        Self {
-            max_messages,
-            max_age_ms,
-            rotate_on_member_join: rotate_on_join,
-            rotate_on_member_leave: rotate_on_leave,
-        }
     }
 }
 
@@ -194,34 +171,6 @@ impl CryptoWrapper {
         }
     }
 
-    pub fn last_key_agreement_stats(&self) -> KeyAgreementStats {
-        match self {
-            Self::Hybrid(crypto) => crypto.last_key_agreement_stats(),
-            Self::Classical(crypto) => crypto.last_key_agreement_stats(),
-        }
-    }
-
-    pub fn set_hybrid_kem_peer_pks(&mut self, peer_pks: &[String]) {
-        if let Self::Hybrid(crypto) = self {
-            crypto.set_hybrid_kem_peer_pks(peer_pks);
-        }
-        // No-op para modo clássico
-    }
-
-    pub fn mode_name(&self) -> &'static str {
-        match self {
-            Self::Hybrid(_) => "HÍBRIDO",
-            Self::Classical(_) => "CLÁSSICO",
-        }
-    }
-
-    pub fn create_outbound_session(&mut self, curve25519_key: &str, ed25519_key: &str) -> Result<(OlmSessionHandle, Option<crate::core::pqxdh::MatrixPqxdhInitMessage>), CryptoError> {
-        match self {
-            Self::Hybrid(crypto) => crypto.create_outbound_session(curve25519_key, ed25519_key),
-            Self::Classical(crypto) => crypto.create_outbound_session(curve25519_key, ed25519_key),
-        }
-    }
-
     pub fn set_pqxdh_init_message(&mut self, init_message: crate::core::pqxdh::MatrixPqxdhInitMessage) {
         match self {
             Self::Hybrid(crypto) => crypto.set_pqxdh_init_message(init_message),
@@ -273,12 +222,6 @@ impl CryptoWrapper {
         }
     }
 
-    pub fn set_peer_public_keys(&mut self, peer_keys: serde_json::Value) {
-        if let Self::Hybrid(crypto) = self {
-            crypto.set_peer_public_keys(peer_keys);
-        }
-        // No-op para modo clássico
-    }
 }
 
 /// Sessões Olm bidirecionais com outro membro
@@ -307,11 +250,6 @@ impl OlmSessionPair {
         self.outbound.is_some()
     }
     
-    /// Verifica se tem sessão inbound estabelecida
-    pub fn has_inbound(&self) -> bool {
-        self.inbound.is_some()
-    }
-    
     /// Obtém sessão outbound mutável para enviar
     pub fn get_outbound_mut(&mut self) -> Option<&mut OlmSessionHandle> {
         self.outbound.as_mut()
@@ -326,6 +264,7 @@ impl OlmSessionPair {
 /// Membro de uma sala Matrix
 pub struct RoomMember {
     /// ID do usuário Matrix
+    #[allow(dead_code)]
     pub user_id: UserId,
     /// Provedor criptográfico (híbrido ou clássico)
     pub crypto: CryptoWrapper,
@@ -371,6 +310,7 @@ pub struct MegolmSessionStats {
     pub distribution_time_ms: f64,
     pub messages_encrypted: usize,
     pub total_bytes_encrypted: usize,
+    #[allow(dead_code)]
     pub key_agreement_stats: KeyAgreementStats,
 }
 
@@ -481,6 +421,7 @@ pub struct MatrixRoom {
     pub num_rotation_messages: usize,      // Mensagens enviadas durante rotação (real, não estimado)
 }
 
+#[allow(dead_code)]
 impl MatrixRoom {
     /// Cria nova sala Matrix experimental (sempre multi-sender)
     pub fn new(room_id: String, crypto_mode: CryptoMode, rotation_policy: RotationPolicy) -> Self {
@@ -559,73 +500,6 @@ impl MatrixRoom {
     pub fn new_classical(room_id: String, policy: RotationPolicy) -> Self {
         Self::new(room_id, CryptoMode::Classical, policy)
     }
-    
-    /// Cria sala com configuração personalizada
-    pub fn with_custom_config(room_id: String, crypto_mode: CryptoMode, rotation_config: RotationConfig) -> Self {
-        Self {
-            room_id,
-            crypto_mode,
-            members: HashMap::new(),
-            sender_sessions: HashMap::new(),
-            rotation_policy: RotationPolicy::Custom,
-            rotation_config,
-            current_session_stats: MegolmSessionStats::default(),
-            session_history: Vec::new(),
-            rotation_count: 0,
-            message_count: 0,
-            message_count_per_sender: HashMap::new(),
-            session_start_time: std::time::Instant::now(),
-            bandwidth_key_exchange: 0,
-            bandwidth_session_distribution: 0,
-            bandwidth_rekeying: 0,
-            bandwidth_messages: 0,
-            
-            // COMPARAÇÃO 1: Overhead PQC - Protocolo completo
-            bandwidth_agreement: 0,
-            bandwidth_agreement_classical: 0,
-            bandwidth_agreement_pqc: 0,
-            bandwidth_initial_distribution: 0,
-            bandwidth_initial_distribution_classical: 0,
-            bandwidth_initial_distribution_pqc: 0,
-            bandwidth_rotation: 0,
-            bandwidth_rotation_classical: 0,
-            bandwidth_rotation_pqc: 0,
-            bandwidth_megolm_messages: 0,
-            
-            // Primitivas isoladas - Agreement
-            bandwidth_agreement_primitives_identity_keys: 0,
-            bandwidth_agreement_primitives_otk: 0,
-            bandwidth_agreement_primitives_kyber1024: 0,
-            bandwidth_agreement_primitives_prekey_overhead: 0,
-            
-            // Primitivas isoladas - Initial Distribution
-            bandwidth_initial_distribution_primitives_megolm_key: 0,
-            bandwidth_initial_distribution_primitives_ratchet_key: 0,
-            bandwidth_initial_distribution_primitives_kem_ct: 0,
-            bandwidth_initial_distribution_primitives_olm_overhead: 0,
-            
-            // Primitivas isoladas - Rotation
-            bandwidth_rotation_primitives_megolm_key: 0,
-            bandwidth_rotation_primitives_ratchet_key: 0,
-            bandwidth_rotation_primitives_kem_ct: 0,
-            bandwidth_rotation_primitives_olm_overhead: 0,
-            
-            // COMPARAÇÃO 2: Controle vs Dados
-            bandwidth_control_plane: 0,
-            bandwidth_data_plane: 0,
-            
-            time_agreement_ms: 0.0,
-            time_initial_distribution_ms: 0.0,
-            time_rotation_ms: 0.0,
-            time_messages_ms: 0.0,
-            in_setup_phase: false,
-            in_rotation_phase: false,
-            active_senders: std::collections::HashSet::new(),
-            num_ratchet_advances: 0,
-            num_asymmetric_advances: 0,
-            num_rotation_messages: 0,
-        }
-    }
 
     /// Adiciona membro à sala
     pub fn add_member(&mut self, user_id: UserId) -> Result<()> {
@@ -671,97 +545,6 @@ impl MatrixRoom {
         }
 
         vlog!(VerbosityLevel::Verbose, "   - Membro {} removido da sala {}", user_id, self.room_id);
-        Ok(())
-    }
-
-    /// Estabelece sessões Olm entre novo membro e todos os existentes
-    fn establish_olm_sessions_for_new_member(&mut self, new_member_id: &str) -> Result<()> {
-        let mode_name = match self.crypto_mode {
-            CryptoMode::Hybrid => "híbrida",
-            CryptoMode::Classical => "clássica",
-        };
-
-        let existing_members: Vec<String> = self.members.keys()
-            .filter(|id| *id != new_member_id)
-            .cloned()
-            .collect();
-
-        for existing_member_id in existing_members {
-            // ====================================================================
-            // ARQUITETURA OFICIAL VODOZEMAC (baseada em olm/mod.rs:25-80)
-            // ====================================================================
-            // 
-            // Fluxo correto:
-            // 1. Sender cria OUTBOUND session com create_outbound_session()
-            // 2. Sender encrypta primeira mensagem → gera PreKeyMessage AUTOMATICAMENTE
-            // 3. Receiver recebe PreKeyMessage
-            // 4. Receiver cria INBOUND session com create_inbound_session(PreKeyMessage)
-            //
-            // IMPORTANTE: Inbound sessions SÓ existem após receber PreKeyMessage!
-            // Não há como criar inbound session antecipadamente.
-            //
-            // Para N participantes:
-            // - Cada um cria (N-1) outbound sessions no setup
-            // - Inbound sessions são criadas lazy (na primeira mensagem recebida)
-            //
-            // Resultado final (após todas as primeiras mensagens):
-            //   - N × (N-1) outbound sessions (criadas no setup)
-            //   - N × (N-1) inbound sessions (criadas ao receber PreKeyMessage)
-            // ====================================================================
-
-            // --- Direção 1: New -> Existing ---
-            // New member cria APENAS outbound session
-            // Existing irá criar inbound quando receber primeira mensagem do new
-            let (outbound_new_to_existing, init_msg_new_to_existing) = 
-                self.create_outbound_olm_session_only(new_member_id, &existing_member_id)?;
-
-            // TRANSMITIR init_message para o receiver (se híbrido)
-            if let Some(init_msg) = init_msg_new_to_existing {
-                if let Some(existing_member) = self.members.get_mut(&existing_member_id) {
-                    existing_member.crypto.set_pqxdh_init_message(init_msg);
-                    vlog!(VerbosityLevel::Debug, "     - Init message transmitida: {} -> {}", 
-                         new_member_id, &existing_member_id[..existing_member_id.len().min(8)]);
-                }
-            }
-
-            if let Some(new_member) = self.members.get_mut(new_member_id) {
-                let pair = new_member.olm_sessions.entry(existing_member_id.clone())
-                    .or_insert_with(OlmSessionPair::new);
-                pair.outbound = Some(outbound_new_to_existing);
-                // pair.inbound fica None até receber PreKeyMessage do existing
-                
-                let existing_short = &existing_member_id[..existing_member_id.len().min(8)];
-                vlog!(VerbosityLevel::Debug, "     - Sessao Olm {} OUTBOUND: {} -> {} [PRONTA, aguarda inbound]", 
-                     mode_name, new_member_id, existing_short);
-            }
-
-            // --- Direção 2: Existing -> New ---
-            // Existing member cria APENAS outbound session
-            // New irá criar inbound quando receber primeira mensagem do existing
-            let (outbound_existing_to_new, init_msg_existing_to_new) = 
-                self.create_outbound_olm_session_only(&existing_member_id, new_member_id)?;
-
-            // TRANSMITIR init_message para o receiver (se híbrido)
-            if let Some(init_msg) = init_msg_existing_to_new {
-                if let Some(new_member) = self.members.get_mut(new_member_id) {
-                    new_member.crypto.set_pqxdh_init_message(init_msg);
-                    vlog!(VerbosityLevel::Debug, "     - Init message transmitida: {} -> {}", 
-                         &existing_member_id[..existing_member_id.len().min(8)], new_member_id);
-                }
-            }
-
-            if let Some(existing_member) = self.members.get_mut(&existing_member_id) {
-                let pair = existing_member.olm_sessions.entry(new_member_id.to_string())
-                    .or_insert_with(OlmSessionPair::new);
-                pair.outbound = Some(outbound_existing_to_new);
-                // pair.inbound fica None até receber PreKeyMessage do new
-                
-                let existing_short = &existing_member_id[..existing_member_id.len().min(8)];
-                vlog!(VerbosityLevel::Debug, "     - Sessao Olm {} OUTBOUND: {} -> {} [PRONTA, aguarda inbound]", 
-                     mode_name, existing_short, new_member_id);
-            }
-        }
-
         Ok(())
     }
 
@@ -979,34 +762,6 @@ impl MatrixRoom {
             "ERRO DE ARQUITETURA: Inbound sessions só podem ser criadas ao receber PreKeyMessage. \
              Use decrypt_megolm_key_via_olm_multi_sender() que criará automaticamente."
         ))
-    }
-
-    /// Cria sessão Olm INBOUND (receiver cria ao receber PreKeyMessage do sender)
-    /// Esta session é PAREADA com a outbound session do sender
-    fn create_inbound_olm_session(&mut self, receiver_id: &str, sender_id: &str, prekey_message: &str) -> Result<OlmSessionHandle> {
-        let _start_time = std::time::Instant::now();
-        
-        // Obter chave de identidade do sender
-        let sender_identity_key = {
-            let sender = self.members.get(sender_id)
-                .context("Sender não encontrado")?;
-            sender.crypto.upload_identity_keys().curve25519
-        };
-
-        // Obter crypto do receiver
-        let receiver_crypto = &mut self.members.get_mut(receiver_id)
-            .context("Receptor não encontrado")?
-            .crypto;
-
-        // Criar sessão INBOUND usando PreKeyMessage
-        let (inbound_session, _decrypted_init) = receiver_crypto
-            .create_inbound_session(&sender_identity_key, prekey_message)
-            .map_err(|e| anyhow::anyhow!("Erro ao criar sessão Olm inbound: {:?}", e))?;
-
-        // NOTA: Tempo de Agreement será medido GLOBALMENTE em create_sessions()
-        // (não medir fragmentadamente aqui - seria parcial)
-
-        Ok(inbound_session)
     }
 
     /// WARM-UP: Estabelece peer_key em sessões Olm via troca de mensagens de teste
@@ -1892,7 +1647,6 @@ impl MatrixRoom {
                                                 decoded[offset], decoded[offset + 1], 
                                                 decoded[offset + 2], decoded[offset + 3]
                                             ]) as usize;
-                                            offset += 4;
                                             vlog!(VerbosityLevel::Debug, "         └─ [BODY PARSE] KEM ciphertext: {} bytes 🔥", kem_ct_len);
                                             
                                             vlog!(VerbosityLevel::Debug, "         └─ [SUMMARY]:");
@@ -2045,7 +1799,6 @@ impl MatrixRoom {
                                                 decoded[offset], decoded[offset+1],
                                                 decoded[offset+2], decoded[offset+3]
                                             ]) as usize;
-                                            offset += 4;
                                             
                                             self.bandwidth_initial_distribution_primitives_kem_ct += kem_ct_len;
                                             
@@ -2141,7 +1894,6 @@ impl MatrixRoom {
                                                 decoded[offset], decoded[offset+1],
                                                 decoded[offset+2], decoded[offset+3]
                                             ]) as usize;
-                                            offset += 4;
                                             
                                             self.bandwidth_rotation_primitives_kem_ct += kem_ct_len;
                                             
@@ -2344,18 +2096,6 @@ impl MatrixRoom {
             .map_err(|e| anyhow::anyhow!("Erro na descriptografia: {:?}", e))
     }
 
-    /// Retorna estatísticas detalhadas da sala
-    pub fn get_stats(&self) -> RoomStats {
-        RoomStats {
-            room_id: self.room_id.clone(),
-            member_count: self.members.len(),
-            total_sessions: self.session_history.len() + if !self.sender_sessions.is_empty() { 1 } else { 0 },
-            current_session_messages: self.message_count,
-            current_session_stats: self.current_session_stats.clone(),
-            historical_sessions: self.session_history.clone(),
-        }
-    }
-    
     /// Retorna métricas de largura de banda (bytes transmitidos)
     pub fn get_bandwidth_metrics(&self) -> (usize, usize, usize, usize) {
         // (key_exchange_bytes, session_distribution_bytes, rekeying_bytes, message_bytes)
@@ -2525,52 +2265,4 @@ impl MatrixRoom {
             (encrypted_message.len(), 0)
         }
     }
-}
-
-/// Estatísticas completas de uma sala
-#[derive(Debug, Clone)]
-pub struct RoomStats {
-    pub room_id: String,
-    pub member_count: usize,
-    pub total_sessions: usize,
-    pub current_session_messages: usize,
-    pub current_session_stats: MegolmSessionStats,
-    pub historical_sessions: Vec<MegolmSessionStats>,
-}
-
-impl RoomStats {
-    /// Calcula estatísticas agregadas de todas as sessões
-    pub fn aggregate_stats(&self) -> AggregatedStats {
-        let mut total_messages = self.current_session_stats.messages_encrypted;
-        let mut total_bytes = self.current_session_stats.total_bytes_encrypted;
-        let mut total_creation_time = self.current_session_stats.creation_time_ms;
-        let mut total_distribution_time = self.current_session_stats.distribution_time_ms;
-
-        for session in &self.historical_sessions {
-            total_messages += session.messages_encrypted;
-            total_bytes += session.total_bytes_encrypted;
-            total_creation_time += session.creation_time_ms;
-            total_distribution_time += session.distribution_time_ms;
-        }
-
-        let total_sessions = self.total_sessions.max(1);
-
-        AggregatedStats {
-            total_messages,
-            total_bytes,
-            total_sessions,
-            avg_creation_time_ms: total_creation_time / total_sessions as f64,
-            avg_distribution_time_ms: total_distribution_time / total_sessions as f64,
-        }
-    }
-}
-
-/// Estatísticas agregadas de múltiplas sessões
-#[derive(Debug)]
-pub struct AggregatedStats {
-    pub total_messages: usize,
-    pub total_bytes: usize,
-    pub total_sessions: usize,
-    pub avg_creation_time_ms: f64,
-    pub avg_distribution_time_ms: f64,
 }

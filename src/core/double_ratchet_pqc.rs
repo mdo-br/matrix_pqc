@@ -44,7 +44,6 @@ use crate::vlog;
 
 // Constantes de derivação seguindo padrão OLM
 const MESSAGE_KEY_SEED: &[u8; 1] = b"\x01";
-const CHAIN_ADVANCEMENT_SEED: &[u8; 1] = b"\x02";
 
 // Constantes reservadas para implementação futura de gerenciamento de mensagens fora de ordem
 // Atualmente não implementado - mantém apenas uma cadeia de recepção ativa (padrão OLM simplificado)
@@ -238,15 +237,6 @@ impl KemKeyPair {
             }
         }
     }
-    
-    /// Retorna algoritmo KEM usado
-    pub fn algorithm(&self) -> KemAlgorithm {
-        match self {
-            KemKeyPair::Kyber512 { .. } => KemAlgorithm::Kyber512,
-            KemKeyPair::Kyber768 { .. } => KemAlgorithm::Kyber768,
-            KemKeyPair::Kyber1024 { .. } => KemAlgorithm::Kyber1024,
-        }
-    }
 }
 
 /// Chaves públicas KEM genéricas
@@ -264,15 +254,6 @@ impl KemPublicKey {
             KemPublicKey::Kyber512(pk) => pk.as_bytes().len(),
             KemPublicKey::Kyber768(pk) => pk.as_bytes().len(),
             KemPublicKey::Kyber1024(pk) => pk.as_bytes().len(),
-        }
-    }
-    
-    /// Algoritmo da chave
-    pub fn algorithm(&self) -> KemAlgorithm {
-        match self {
-            KemPublicKey::Kyber512(_) => KemAlgorithm::Kyber512,
-            KemPublicKey::Kyber768(_) => KemAlgorithm::Kyber768,
-            KemPublicKey::Kyber1024(_) => KemAlgorithm::Kyber1024,
         }
     }
 }
@@ -318,11 +299,6 @@ impl PqcRatchetKeyPair {
             kem_keypair,
             kem_algorithm,
         }
-    }
-    
-    /// Gera com Kyber-1024 (padrão)
-    pub fn generate_default() -> Self {
-        Self::generate(KemAlgorithm::Kyber1024)
     }
     
     /// Exporta chaves públicas
@@ -452,6 +428,7 @@ impl PqcRatchetPublicKey {
     }
     
     /// Serializa para Base64 seguindo padrão vodozemac simples
+    #[allow(dead_code)]
     pub fn to_base64(&self) -> String {
         B64.encode(&self.to_bytes())
     }
@@ -513,6 +490,7 @@ impl PqcRatchetPublicKey {
 
     
     /// Desserializa de Base64 seguindo o padrão vodozemac simples
+    #[allow(dead_code)]
     pub fn from_base64(b64: &str) -> Result<Self, CryptoError> {
         let bytes = B64.decode(b64).map_err(|_| CryptoError::Protocol)?;
         Self::from_bytes(&bytes)
@@ -595,68 +573,6 @@ impl PqcOlmMessage {
         self
     }
     
-    /// Calcula overhead total da mensagem usando tamanhos reais
-    pub fn overhead_bytes(&self) -> usize {
-        let base_size = match &self.classic_component {
-            OlmMessage::PreKey(m) => m.to_bytes().len(),
-            OlmMessage::Normal(m) => m.to_bytes().len(),
-        };
-        
-        let pqc_overhead = if let Some(ref ratchet_key) = self.ratchet_key {
-            ratchet_key.size_bytes() // Usa tamanho real da instância
-        } else {
-            0
-        };
-        
-        // Overhead calculado dinamicamente
-        let metadata_overhead = if self.pqc_enabled { 
-            std::mem::size_of::<u32>() + // message_index
-            std::mem::size_of::<bool>() + // pqc_enabled flag
-            8 // serialization overhead estimado
-        } else { 
-            std::mem::size_of::<u32>() + 4 // minimal metadata
-        };
-        base_size + pqc_overhead + metadata_overhead
-    }
-    
-    /// Retorna tamanho da componente clássica (vodozemac base)
-    pub fn classical_component_bytes(&self) -> usize {
-        match &self.classic_component {
-            OlmMessage::PreKey(m) => m.to_bytes().len(),
-            OlmMessage::Normal(m) => m.to_bytes().len(),
-        }
-    }
-    
-    /// Retorna tamanho da componente PQC (ratchet key + kem ciphertext)
-    pub fn pqc_component_bytes(&self) -> usize {
-        let ratchet_key_size = if let Some(ref ratchet_key) = self.ratchet_key {
-            ratchet_key.size_bytes()
-        } else {
-            0
-        };
-        
-        let kem_ciphertext_size = if let Some(ref ct) = self.kem_ciphertext {
-            ct.len()
-        } else {
-            0
-        };
-        
-        ratchet_key_size + kem_ciphertext_size
-    }
-    
-    /// Retorna breakdown completo: (clássico, pqc, metadata, total)
-    pub fn size_breakdown(&self) -> (usize, usize, usize, usize) {
-        let classical = self.classical_component_bytes();
-        let pqc = self.pqc_component_bytes();
-        let metadata = if self.pqc_enabled { 
-            std::mem::size_of::<u32>() + std::mem::size_of::<bool>() + 8
-        } else { 
-            std::mem::size_of::<u32>() + 4
-        };
-        let total = classical + pqc + metadata;
-        (classical, pqc, metadata, total)
-    }
-
     /// SERIALIZAÇÃO PQC COMPLETA: Converte mensagem híbrida para JSON Matrix-compatível
     /// 
     /// IMPORTANTE: Por que usar JSON ao invés de Base64 simples?
@@ -949,24 +865,6 @@ impl PqcDoubleRatchetState {
         hasher.finalize().into()
     }
     
-    /// Deriva chain key específica para mensagem consecutiva
-    /// 
-    /// Para mensagens consecutivas na mesma direção (sem troca de ratchet),
-    /// deriva uma chain key única baseada no contador de mensagens.
-    /// Usa HKDF para garantir independência entre chaves de mensagens diferentes.
-    fn derive_chain_key_for_message(root_key: &[u8; 32], message_counter: u32) -> Result<[u8; 32], CryptoError> {
-        let salt = b"matrix-consecutive-chain-key-v1";
-        let info = format!("chain-key-msg-{}", message_counter);
-        
-        let hk = Hkdf::<Sha256>::new(Some(salt), root_key.as_slice());
-        
-        let mut chain_key = [0u8; 32];
-        hk.expand(info.as_bytes(), &mut chain_key)
-            .map_err(|_| CryptoError::Protocol)?;
-        
-        Ok(chain_key)
-    }
-    
     /// Deriva chain key a partir do hybrid secret (KEM + DH) para mensagens consecutivas
     /// 
     /// Similar a derive_chain_key_for_message mas usa o hybrid secret diretamente
@@ -1005,32 +903,6 @@ impl PqcDoubleRatchetState {
         message_key.copy_from_slice(&bytes);
         
         Ok(message_key)
-    }
-    
-    /// AVANÇO DE CHAIN KEY (seguindo padrão OLM oficial)
-    /// 
-    /// Avança a chain key para a próxima posição usando HMAC-SHA256.
-    /// Seguindo spec OLM: usa seed 0x02 para avançar ratchet simétrico.
-    /// 
-    /// Cada avanço produz uma nova chain key criptograficamente independente,
-    /// garantindo forward secrecy: compromisso de chain_key[n] não revela chain_key[n-1].
-    fn advance_chain_key(chain_key: &mut [u8; 32]) -> Result<(), CryptoError> {
-        let mut mac = Hmac::<Sha256>::new_from_slice(chain_key)
-            .map_err(|_| CryptoError::Protocol)?;
-        
-        mac.update(CHAIN_ADVANCEMENT_SEED); // 0x02
-        
-        let result = mac.finalize();
-        let bytes = result.into_bytes();
-        
-        chain_key.copy_from_slice(&bytes);
-        
-        Ok(())
-    }
-    
-    /// Versão padrão (Kyber1024 para compatibilidade)
-    pub fn new_default(initial_root_key: [u8; 32]) -> Self {
-        Self::new(initial_root_key, KemAlgorithm::Kyber1024, true) // Padrão: começa enviando
     }
     
     /// Define chave pública do peer (inicialização da sessão)
@@ -1267,6 +1139,7 @@ impl PqcDoubleRatchetState {
 }
 
 /// Estatísticas do Double Ratchet
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct RatchetStats {
     pub messages_sent: u32,
@@ -1345,6 +1218,7 @@ pub struct HybridOlmSession {
     pending_kem_ciphertext: Option<Vec<u8>>,
 }
 
+#[allow(dead_code)]
 impl HybridOlmSession {
     /// Retorna referência à sessão vodozemac base
     pub fn get_vodozemac_session(&self) -> &VodoSession {
@@ -1848,347 +1722,13 @@ impl HybridOlmSession {
 }
 
 /// Estatísticas da sessão híbrida
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct SessionStats {
     pub total_messages: u32,
     pub pqc_enabled: bool,
     pub session_id: String,
     pub ratchet_stats: Option<RatchetStats>,
-}
-
-/// Simulador completo Bob para processamento de mensagens PQC
-pub struct BobPqcProcessor {
-    /// Sessão híbrida de Bob
-    pub session: HybridOlmSession,
-    
-    /// Chaves de ratchet atuais de Bob
-    pub ratchet_keys: PqcRatchetKeyPair,
-    
-    /// Histórico de mensagens processadas
-    pub processed_messages: Vec<ProcessedMessage>,
-    
-    /// Algoritmo KEM usado
-    pub kem_algorithm: KemAlgorithm,
-}
-
-/// Mensagem processada com verificação de integridade
-#[derive(Clone)]
-pub struct ProcessedMessage {
-    pub message_index: u32,
-    pub plaintext: Vec<u8>,
-    pub integrity_verified: bool,
-    pub pqc_component_present: bool,
-    pub processing_time_ms: f64,
-    pub ratchet_advanced: bool,
-}
-
-impl BobPqcProcessor {
-    /// Cria novo processador Bob a partir de sessão vodozemac
-    pub fn new(vodozemac_session: VodoSession, kem_algorithm: KemAlgorithm) -> Self {
-        Self {
-            session: HybridOlmSession::from_vodozemac(vodozemac_session),
-            ratchet_keys: PqcRatchetKeyPair::generate(kem_algorithm),
-            processed_messages: Vec::new(),
-            kem_algorithm,
-        }
-    }
-    
-    /// Inicializa processador com chave raiz PQXDH
-    pub fn initialize_pqc(&mut self, initial_root_key: [u8; 32]) -> PqcRatchetPublicKey {
-        // Bob começa como receptor (is_active = false)
-        self.session.enable_pqc_mode_as_receiver(initial_root_key, self.kem_algorithm);
-        
-        // Retornar chaves públicas para Alice
-        self.ratchet_keys.public_keys()
-    }
-    
-    /// Define chave pública do peer (Alice) para PQC
-    pub fn set_peer_pqc_key(&mut self, peer_key: PqcRatchetPublicKey) -> Result<(), CryptoError> {
-        self.session.set_peer_pqc_key(peer_key)
-    }
-    
-    /// Processa mensagem PQC completa com verificação de integridade
-    pub fn process_message(&mut self, pqc_msg: &PqcOlmMessage) -> Result<ProcessedMessage, CryptoError> {
-        let start_time = std::time::Instant::now();
-        
-        vlog!(VerbosityLevel::Normal, " Bob processando mensagem #{}", pqc_msg.message_index);
-        
-        // 1. Verificar integridade da mensagem
-        let integrity_verified = self.verify_message_integrity(pqc_msg)?;
-        
-        // 2. Processar componente PQC se presente
-        let mut ratchet_advanced = false;
-        if let Some(ref new_alice_key) = pqc_msg.ratchet_key {
-            if let Some(ref mut pqc_state) = self.session.pqc_ratchet {
-                vlog!(VerbosityLevel::Debug, "   ├─ Processando nova chave ratchet de Alice");
-                vlog!(VerbosityLevel::Debug, "   ├─ Algoritmo: {}", new_alice_key.kem_algorithm.name());
-                vlog!(VerbosityLevel::Debug, "   ├─ Tamanho chave: {}B", new_alice_key.size_bytes());
-                
-                // Avançar ratchet recebimento COM decapsulação KEM
-                let kem_ct = pqc_msg.kem_ciphertext.as_ref().map(|v| v.as_slice());
-                let _chain_key = pqc_state.advance_receiving_ratchet_with_decapsulate(new_alice_key, kem_ct)?;
-                ratchet_advanced = true;
-                
-                vlog!(VerbosityLevel::Debug, "   ├─  Ratchet avançado com sucesso");
-            }
-        }
-        
-        // 3. Descriptografar mensagem base
-        let plaintext = self.session.decrypt_hybrid(pqc_msg)?;
-        
-        // 4. Registrar processamento
-        let processing_time = start_time.elapsed().as_micros() as f64 / 1000.0;
-        let processed = ProcessedMessage {
-            message_index: pqc_msg.message_index,
-            plaintext: plaintext.clone(),
-            integrity_verified,
-            pqc_component_present: pqc_msg.pqc_enabled,
-            processing_time_ms: processing_time,
-            ratchet_advanced,
-        };
-        
-        self.processed_messages.push(processed.clone());
-        
-        vlog!(VerbosityLevel::Debug, "   ├─ Descriptografado: \"{}\"", String::from_utf8_lossy(&plaintext));
-        vlog!(VerbosityLevel::Debug, "   ├─ Integridade: {}", if integrity_verified { "OK" } else { "FAIL" });
-        vlog!(VerbosityLevel::Debug, "   ├─ Tempo: {:.3}ms", processing_time);
-        vlog!(VerbosityLevel::Debug, "   ├─ Processamento completo");
-        
-        Ok(processed)
-    }
-    
-    /// Responde com mensagem própria (Bob → Alice)
-    pub fn respond_message(&mut self, response_text: &str) -> Result<PqcOlmMessage, CryptoError> {
-        vlog!(VerbosityLevel::Normal, " Bob enviando resposta: \"{}\"", response_text);
-        
-        // Usar o método encrypt_hybrid que já gerencia o avanço do ratchet corretamente
-        self.session.encrypt_hybrid(response_text.as_bytes())
-    }
-    
-    /// Obtém estatísticas completas de Bob
-    pub fn get_processing_stats(&self) -> BobProcessingStats {
-        let total_messages = self.processed_messages.len();
-        let pqc_messages = self.processed_messages.iter()
-            .filter(|m| m.pqc_component_present)
-            .count();
-        let avg_processing_time = if total_messages > 0 {
-            self.processed_messages.iter()
-                .map(|m| m.processing_time_ms)
-                .sum::<f64>() / total_messages as f64
-        } else { 0.0 };
-        
-        BobProcessingStats {
-            total_messages_processed: total_messages,
-            pqc_messages_processed: pqc_messages,
-            integrity_failures: self.processed_messages.iter()
-                .filter(|m| !m.integrity_verified)
-                .count(),
-            avg_processing_time_ms: avg_processing_time,
-            ratchet_advancements: self.processed_messages.iter()
-                .filter(|m| m.ratchet_advanced)
-                .count(),
-            session_stats: self.session.get_session_stats(),
-        }
-    }
-    
-    /// 2. VERIFICAÇÃO DE INTEGRIDADE DAS CHAVES RATCHET (COMPLETA)
-    fn verify_message_integrity(&self, pqc_msg: &PqcOlmMessage) -> Result<bool, CryptoError> {
-        vlog!(VerbosityLevel::Debug, "   ├─ Verificando integridade da mensagem...");
-        
-        // 1. Verificar índice sequencial
-        let expected_index = self.processed_messages.len() as u32 + 1;
-        if pqc_msg.message_index != expected_index {
-            vlog!(VerbosityLevel::Normal, "   FALHA: Índice fora de sequência (esperado: {}, recebido: {})", 
-                     expected_index, pqc_msg.message_index);
-            return Ok(false);
-        }
-        
-        // 2. Verificar integridade da chave ratchet PQC
-        if let Some(ref ratchet_key) = pqc_msg.ratchet_key {
-            // Verificar tamanho exato da chave Curve25519
-            if ratchet_key.curve25519_key.as_bytes().len() != 32 {
-                vlog!(VerbosityLevel::Normal, "   FALHA: Chave Curve25519 inválida: {}B", ratchet_key.curve25519_key.as_bytes().len());
-                return Ok(false);
-            }
-            
-            // Verificar que chave não é ponto zero (ataque de chave fraca)
-            if ratchet_key.curve25519_key.as_bytes().iter().all(|&b| b == 0) {
-                vlog!(VerbosityLevel::Normal, "   FALHA: Chave Curve25519 é ponto zero (vulnerável)");
-                return Ok(false);
-            }
-            
-            // Verificar tamanho exato da chave KEM baseado no algoritmo
-            let (expected_kem_size, algorithm_name) = match ratchet_key.kem_algorithm {
-                KemAlgorithm::Kyber512 => (800, "Kyber-512"),
-                KemAlgorithm::Kyber768 => (1184, "Kyber-768"),
-                KemAlgorithm::Kyber1024 => (1568, "Kyber-1024"),
-            };
-            
-            let actual_kem_size = ratchet_key.kem_public_key.size_bytes();
-            if actual_kem_size != expected_kem_size {
-                vlog!(VerbosityLevel::Normal, "   FALHA: Chave {} inválida: {}B (esperado: {}B)", 
-                         algorithm_name, actual_kem_size, expected_kem_size);
-                return Ok(false);
-            }
-            
-            // Verificar compatibilidade de algoritmos
-            if ratchet_key.kem_algorithm != self.kem_algorithm {
-                vlog!(VerbosityLevel::Normal, "   FALHA: Algoritmo incompatível: {} vs {}", 
-                         ratchet_key.kem_algorithm.name(), self.kem_algorithm.name());
-                return Ok(false);
-            }
-            
-            // Validação criptográfica: testar se chave KEM é válida
-            if !self.validate_kem_public_key(&ratchet_key.kem_public_key)? {
-                vlog!(VerbosityLevel::Normal, "   FALHA: Chave KEM falhou na validação criptográfica");
-                return Ok(false);
-            }
-            
-            // Verificar serialização round-trip (integridade estrutural)
-            match self.verify_key_serialization_integrity(ratchet_key) {
-                Ok(true) => {},
-                Ok(false) => {
-                    vlog!(VerbosityLevel::Normal, "   FALHA: Chave falhou no teste de serialização");
-                    return Ok(false);
-                }
-                Err(_) => {
-                    vlog!(VerbosityLevel::Normal, "   FALHA: Erro durante verificação de serialização");
-                    return Ok(false);
-                }
-            }
-            
-            vlog!(VerbosityLevel::Normal, "   SUCESSO: Chave ratchet PQC validada");
-        }
-        
-        // 3. Verificar integridade do componente vodozemac
-        let vodozemac_size = match &pqc_msg.classic_component {
-            vodozemac::olm::OlmMessage::PreKey(msg) => msg.to_bytes().len(),
-            vodozemac::olm::OlmMessage::Normal(msg) => msg.to_bytes().len(),
-        };
-        
-        if vodozemac_size < 32 {
-            vlog!(VerbosityLevel::Normal, "   FALHA: Componente vodozemac muito pequeno: {}B", vodozemac_size);
-            return Ok(false);
-        }
-        
-        // 4. Verificar checksum da mensagem completa (básico)
-        let message_hash = self.compute_message_hash(pqc_msg)?;
-        if !self.verify_message_hash(&message_hash) {
-            vlog!(VerbosityLevel::Normal, "   FALHA: Hash da mensagem suspeito");
-            return Ok(false);
-        }
-        
-        vlog!(VerbosityLevel::Debug, "   ├─ SUCESSO: Integridade da mensagem verificada");
-        Ok(true)
-    }
-    
-    /// Valida se chave KEM é criptograficamente válida
-    fn validate_kem_public_key(&self, kem_key: &KemPublicKey) -> Result<bool, CryptoError> {
-        let key_bytes = match kem_key {
-            KemPublicKey::Kyber512(k) => k.as_bytes(),
-            KemPublicKey::Kyber768(k) => k.as_bytes(),
-            KemPublicKey::Kyber1024(k) => k.as_bytes(),
-        };
-        
-        // Verificar que não é chave zero (ataque de chave fraca)
-        if key_bytes.iter().all(|&b| b == 0) {
-            return Ok(false);
-        }
-        
-        // Verificar que não é chave "toda 0xFF" (suspeito)
-        if key_bytes.iter().all(|&b| b == 0xFF) {
-            return Ok(false);
-        }
-        
-        // Verificar entropia mínima (chave deve ter variação)
-        let mut unique_bytes = std::collections::HashSet::new();
-        for &byte in key_bytes {
-            unique_bytes.insert(byte);
-        }
-        
-        // Kyber keys devem ter pelo menos 32 bytes únicos (entropia mínima)
-        if unique_bytes.len() < 32 {
-            return Ok(false);
-        }
-        
-        Ok(true)
-    }
-    
-    /// Verifica integridade da serialização (round-trip test)
-    fn verify_key_serialization_integrity(&self, ratchet_key: &PqcRatchetPublicKey) -> Result<bool, CryptoError> {
-        // Testar serialização e deserialização
-        let serialized = ratchet_key.to_base64();
-        let deserialized = PqcRatchetPublicKey::from_base64(&serialized)?;
-        
-        // Verificar se dados são idênticos após round-trip
-        let original_curve = ratchet_key.curve25519_key.as_bytes();
-        let recovered_curve = deserialized.curve25519_key.as_bytes();
-        
-        if original_curve != recovered_curve {
-            return Ok(false);
-        }
-        
-        // Verificar se algoritmo é preservado
-        if ratchet_key.kem_algorithm != deserialized.kem_algorithm {
-            return Ok(false);
-        }
-        
-        // Verificar se tamanho das chaves KEM é preservado
-        if ratchet_key.kem_public_key.size_bytes() != deserialized.kem_public_key.size_bytes() {
-            return Ok(false);
-        }
-        
-        Ok(true)
-    }
-    
-    /// Computa hash da mensagem para verificação de integridade
-    fn compute_message_hash(&self, pqc_msg: &PqcOlmMessage) -> Result<[u8; 32], CryptoError> {
-        use sha2::{Sha256, Digest};
-        
-        let mut hasher = Sha256::new();
-        
-        // Hash do componente vodozemac
-        let vodozemac_bytes = match &pqc_msg.classic_component {
-            vodozemac::olm::OlmMessage::PreKey(msg) => msg.to_bytes(),
-            vodozemac::olm::OlmMessage::Normal(msg) => msg.to_bytes(),
-        };
-        hasher.update(&vodozemac_bytes);
-        
-        // Hash do componente PQC se presente
-        if let Some(ref ratchet_key) = pqc_msg.ratchet_key {
-            hasher.update(ratchet_key.curve25519_key.as_bytes());
-            let kem_bytes = match &ratchet_key.kem_public_key {
-                KemPublicKey::Kyber512(k) => k.as_bytes(),
-                KemPublicKey::Kyber768(k) => k.as_bytes(),
-                KemPublicKey::Kyber1024(k) => k.as_bytes(),
-            };
-            hasher.update(kem_bytes);
-        }
-        
-        // Hash do metadata
-        hasher.update(&pqc_msg.message_index.to_le_bytes());
-        hasher.update(&[if pqc_msg.pqc_enabled { 1 } else { 0 }]);
-        
-        Ok(hasher.finalize().into())
-    }
-    
-    /// Verifica se hash da mensagem é válido (básico)
-    fn verify_message_hash(&self, _message_hash: &[u8; 32]) -> bool {
-        // Em implementação real, compararia com hash esperado ou assinatura
-        // Por agora, apenas verificar que não é zero
-        !_message_hash.iter().all(|&b| b == 0)
-    }
-}
-
-/// Estatísticas de processamento de Bob
-#[derive(Clone, Debug)]
-pub struct BobProcessingStats {
-    pub total_messages_processed: usize,
-    pub pqc_messages_processed: usize,
-    pub integrity_failures: usize,
-    pub avg_processing_time_ms: f64,
-    pub ratchet_advancements: usize,
-    pub session_stats: SessionStats,
 }
 
 /// Derivação híbrida para combinação de segredos DH + KEM no Double Ratchet
@@ -2285,7 +1825,7 @@ mod tests {
         ratchet.set_peer_ratchet_key(peer_keys.clone());
         
         // Avançar ratchet de envio (gera KEM ciphertext)
-        let (chain_key1, kem_ct1) = ratchet.advance_sending_ratchet_with_kem().unwrap();
+        let (chain_key1, _kem_ct1) = ratchet.advance_sending_ratchet_with_kem().unwrap();
         
         // Simular recebimento: o peer usa seu keypair privado para decapsular
         // Mas no teste, vamos apenas criar um novo keypair e ciphertext
@@ -2375,63 +1915,6 @@ mod tests {
     }
 
 
-    
-    #[test]
-    fn test_bob_processing_complete() {
-        use crate::core::crypto::{CryptoProvider, KemChoice};
-        use crate::core::providers::hybrid::VodoCryptoHybrid;
-        use sha2::{Sha256, Digest};
-        
-        // Simular estabelecimento de sessão
-        let mut alice = VodoCryptoHybrid::account_new(KemChoice::Kyber1024);
-        let mut bob = VodoCryptoHybrid::account_new(KemChoice::Kyber1024);
-        
-        // Setup PQXDH
-        let alice_keys = alice.export_pqxdh_public_keys();
-        let bob_keys = bob.export_pqxdh_public_keys();
-        alice.set_peer_public_keys(bob_keys);
-        bob.set_peer_public_keys(alice_keys);
-        
-        // Estabelecer sessões
-        let bob_identity = bob.upload_identity_keys();
-        bob.generate_one_time_keys(1);
-        let bob_otks = bob.generate_one_time_keys(1);
-        bob.mark_keys_published();
-        
-        let (alice_session, _) = alice.create_outbound_session(
-            &bob_identity.curve25519,
-            &bob_otks[0].curve25519
-        ).unwrap();
-        
-        // Criar processador Bob
-        let vodozemac_session = {
-            // Simular criação de sessão vodozemac para Bob
-            let mut hasher = Sha256::new();
-            hasher.update(b"test-session-for-bob");
-            let _session_key = hasher.finalize();
-            
-            // Em implementação real, Bob criaria sessão inbound aqui
-            alice_session.hybrid_session.vodozemac_session // Placeholder para teste
-        };
-        
-        let mut bob_processor = BobPqcProcessor::new(vodozemac_session, KemAlgorithm::Kyber1024);
-        
-        // Inicializar PQC
-        let mut hasher = Sha256::new();
-        hasher.update(b"test-pqc-root-key");
-        let pqc_root: [u8; 32] = hasher.finalize().into();
-        
-        let _bob_ratchet_keys = bob_processor.initialize_pqc(pqc_root);
-        
-        vlog!(VerbosityLevel::Normal, "SUCESSO: Processador Bob inicializado com sucesso");
-        
-        // Verificar estatísticas iniciais
-        let stats = bob_processor.get_processing_stats();
-        assert_eq!(stats.total_messages_processed, 0);
-        assert_eq!(stats.pqc_messages_processed, 0);
-        
-        vlog!(VerbosityLevel::Normal, "SUCESSO: Teste de processamento Bob: OK");
-    }
     
     #[test]
     fn test_integrity_verification() {

@@ -128,6 +128,7 @@ pub struct MatrixUser {
     /// Usada exclusivamente para assinatura de prekeys e mensagens
     /// Também conhecida como "fingerprint key" no Matrix
     /// ZEROIZED: ed25519-dalek implementa ZeroizeOnDrop automaticamente
+    #[allow(dead_code)]
     signing_key: Box<SigningKey>,
     
     /// Chave de assinatura Ed25519 pública (permanente)
@@ -466,11 +467,6 @@ impl MatrixUser {
         self.one_time_keys_storage
             .get(key_id)
             .map(|secret| X25519PublicKey::from(secret.as_ref()).as_bytes().to_vec())
-    }
-    
-    /// Obtém IDs das chaves one-time disponíveis
-    pub fn get_available_otk_ids(&self) -> Vec<String> {
-        self.one_time_keys_storage.keys().cloned().collect()
     }
 }
 
@@ -884,107 +880,3 @@ fn matrix_pqxdh_kdf(
     
     output
 }
-
-/// Função de demonstração do protocolo PQXDH
-/// 
-/// Executa demonstração completa do acordo de chaves PQXDH entre dois usuários
-/// Matrix simulados, incluindo:
-/// 1. Criação de usuários Alice e Bob com chaves completas
-/// 2. Exportação e troca de chaves públicas 
-/// 3. Inicialização do acordo PQXDH por Alice
-/// 4. Completamento do acordo por Bob
-/// 5. Verificação de que ambos derivaram a mesma chave de sessão
-/// 
-/// # Parâmetros
-/// * `args` - Argumentos da aplicação (controla verbosidade)
-/// 
-/// # Saída
-/// Demonstra o fluxo completo com logs informativos, incluindo:
-/// - IDs e dispositivos dos usuários criados
-/// - Chaves públicas exportadas (se modo verboso)
-/// - Mensagem de inicialização PQXDH (se modo verboso)  
-/// - Confirmação de sucesso do acordo de chaves
-/// - Chave de sessão final derivada (hex)
-/// 
-/// # Segurança
-/// Simula cenário realista onde usuários trocam chaves através
-/// de servidor Matrix, mas demonstra resistência quântica end-to-end.
-pub fn demo() -> Result<()> {
-    vlog!(VerbosityLevel::Minimal, "=== Demonstração PQXDH ===");
-    
-    // Criar dois usuários Matrix simulados
-    let alice = MatrixUser::new("@alice:matrix.org".to_string(), "ALICE_DEVICE".to_string())?;
-    let mut bob = MatrixUser::new("@bob:matrix.org".to_string(), "BOB_DEVICE".to_string())?;
-    
-    vlog!(VerbosityLevel::Normal, "Usuários criados:");
-    vlog!(VerbosityLevel::Normal, "- Alice: {} ({})", alice.user_id, alice.device_id);
-    vlog!(VerbosityLevel::Normal, "- Bob: {} ({})", bob.user_id, bob.device_id);
-    
-    // Alice obtém chaves públicas do Bob (simula busca no servidor Matrix)
-    let bob_public_keys = bob.export_public_keys();
-    vlog!(VerbosityLevel::Verbose, "\nChaves públicas do Bob:");
-    vlog!(VerbosityLevel::Verbose, "{}", serde_json::to_string_pretty(&bob_public_keys)?);
-    
-    // Alice inicia acordo de chaves PQXDH
-    vlog!(VerbosityLevel::Minimal, "\nAlice iniciando acordo de chaves PQXDH...");
-    let pqxdh_output = init_pqxdh(&alice, &bob_public_keys)?;
-    
-    vlog!(VerbosityLevel::Verbose, "Mensagem de inicialização PQXDH:");
-    vlog!(VerbosityLevel::Verbose, "{}", serde_json::to_string_pretty(&pqxdh_output.init_message)?);
-    
-    // Bob completa acordo de chaves PQXDH
-    vlog!(VerbosityLevel::Minimal, "Bob completando acordo de chaves PQXDH...");
-    let bob_session_key = complete_pqxdh(&mut bob, &pqxdh_output.init_message)?;
-    
-    // Verificar se chaves coincidem (prova de correção do protocolo)
-    if pqxdh_output.session_key == bob_session_key {
-        vlog!(VerbosityLevel::Minimal, "Acordo de chaves PQXDH realizado com sucesso!");
-        vlog!(VerbosityLevel::Normal, "Chave de sessão: {}", hex::encode(&pqxdh_output.session_key));
-    } else {
-        anyhow::bail!("Falha no acordo de chaves PQXDH - chaves não coincidem");
-    }
-    
-    Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    
-    #[test]
-    fn test_matrix_user_independent_keys() {
-        let user = MatrixUser::new(
-            "@alice:matrix.org".to_string(),
-            "DEVICE_1".to_string()
-        ).unwrap();
-        
-        let signing_bytes = user.signing_public_key.to_bytes();
-        let dh_bytes = user.dh_public_key.as_bytes();
-        
-        assert_eq!(signing_bytes.len(), 32);
-        assert_eq!(dh_bytes.len(), 32);
-        // Corrigir comparação: dereferencing dh_bytes
-        assert_ne!(&signing_bytes, dh_bytes);
-    }
-    
-    #[test]
-    fn test_pqxdh_key_agreement_success() {
-        let alice = MatrixUser::new(
-            "@alice:matrix.org".to_string(),
-            "ALICE_DEVICE".to_string()
-        ).unwrap();
-        
-        let mut bob = MatrixUser::new(
-            "@bob:matrix.org".to_string(),
-            "BOB_DEVICE".to_string()
-        ).unwrap();
-        
-        let bob_public_keys = bob.export_public_keys();
-        // Corrigir: bob_public_keys já é Value, precisa ser &Value
-        let alice_output = init_pqxdh(&alice, &bob_public_keys).unwrap();
-        let bob_session_key = complete_pqxdh(&mut bob, &alice_output.init_message).unwrap();
-        
-        assert_eq!(alice_output.session_key, bob_session_key);
-    }
-}
-

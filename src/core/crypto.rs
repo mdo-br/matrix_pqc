@@ -134,6 +134,7 @@ pub struct OlmSessionHandle {
     pub pqc_enabled: bool,
     
     /// Algoritmo KEM em uso (quando pqc_enabled = true)
+    #[allow(dead_code)]
     pub kem_algorithm: Option<crate::core::crypto::KemAlgorithm>,
 }
 
@@ -224,67 +225,11 @@ pub struct KeyAgreementStats {
     pub kem_bytes: usize,
     
     /// Tempo de derivação HKDF (ms)
+    #[allow(dead_code)]
     pub hkdf_time_ms: f64,
     
     /// Tempo total de overhead PQC (ms)
     pub total_time_ms: f64,
-}
-
-/// Métricas detalhadas de operações PQC (para análise detalhada)
-#[derive(Debug, Clone, Default)]
-pub struct DetailedPqcStats {
-    // PQXDH (estabelecimento inicial de sessão)
-    /// Tempo total para completar protocolo PQXDH
-    pub pqxdh_total_ms: f64,
-    /// Tempo específico para operações KEM no PQXDH
-    pub pqxdh_kem_ms: f64,
-    /// Tempo para acordos Diffie-Hellman clássicos no PQXDH
-    pub pqxdh_dh_ms: f64,
-    
-    // Double Ratchet PQC (comunicação contínua)
-    /// Tempo para avançar ratchet com operação KEM
-    pub ratchet_advance_ms: f64,
-    /// Número de operações KEM executadas durante ratcheting
-    pub ratchet_kem_ops: u32,
-    /// Overhead de bytes introduzido por mensagem ratcheted
-    pub ratchet_overhead_bytes: usize,
-    /// Frequência de avanço do ratchet (mensagens entre avanços)
-    pub ratchet_advance_frequency: u32,
-    
-    // Serialização e formatação
-    /// Tempo para serialização JSON Matrix-compatível
-    pub serialization_ms: f64,
-    /// Bytes extras introduzidos pelo formato JSON vs binário
-    pub serialization_overhead_bytes: usize,
-    
-    // Comparação com equivalente clássico
-    /// Tempo que operação equivalente levaria em modo clássico
-    pub classic_equivalent_ms: f64,
-    /// Overhead puro PQC (excluindo serialização)
-    pub pure_pqc_overhead_ms: f64,
-    
-    // Métricas agregadas
-    /// Número total de mensagens processadas
-    pub total_messages: u32,
-    /// Throughput sustentado (mensagens por segundo)
-    pub sustained_throughput: f64,
-}
-
-/// Estatísticas de operação criptográfica individual
-#[derive(Debug, Clone, Default)]
-pub struct PqcOperationStats {
-    /// Tempo total da operação
-    pub total_time_ms: f64,
-    /// Tempo gasto em operações KEM
-    pub kem_time_ms: f64,
-    /// Tempo gasto em serialização
-    pub serialization_time_ms: f64,
-    /// Se o ratchet foi avançado nesta operação
-    pub ratchet_advanced: bool,
-    /// Overhead de bytes desta mensagem específica
-    pub message_overhead_bytes: usize,
-    /// Algoritmo KEM utilizado
-    pub kem_algorithm: Option<KemAlgorithm>,
 }
 
 /// Erros de operações criptográficas
@@ -462,55 +407,5 @@ pub trait CryptoProvider {
     /// * `inbound` - Sessão Megolm inbound
     /// * `message_b64` - Mensagem criptografada em Base64
     fn megolm_decrypt(&mut self, inbound: &mut MegolmInbound, message_b64: &str) -> Result<Vec<u8>, CryptoError>;
-    
-    /// Estima overhead de tamanho introduzido pela criptografia
-    /// 
-    /// Calcula bytes adicionais introduzidos por headers, MACs,
-    /// padding e metadados criptográficos comparado ao plaintext.
-    /// 
-    /// # Parâmetros
-    /// * `ciphertext_b64` - Mensagem criptografada para análise
-    fn estimate_message_overhead(&self, ciphertext_b64: &str) -> usize;
-    
-    /// Retorna estatísticas da última operação PQXDH
-    /// 
-    /// Fornece métricas detalhadas sobre performance de operações PQC,
-    /// incluindo tempos de execução e overhead de largura de banda.
-    /// Implementação padrão retorna estatísticas vazias para modo clássico.
-    fn last_key_agreement_stats(&self) -> KeyAgreementStats {
-        KeyAgreementStats::default()
-    }
-    
-    /// Retorna métricas detalhadas da última operação PQC
-    /// 
-    /// Fornece decomposição granular de overhead PQC por componente,
-    /// permitindo análise precisa de performance. Implementação padrão
-    /// retorna métricas vazias para provedores clássicos.
-    fn detailed_pqc_stats(&self) -> DetailedPqcStats {
-        DetailedPqcStats::default()
-    }
-    
-    /// Criptografa mensagem com coleta de métricas
-    /// 
-    /// Versão instrumentada de olm_encrypt que coleta métricas detalhadas
-    /// sobre cada componente da operação criptográfica.
-    /// 
-    /// # Parâmetros
-    /// * `session` - Sessão Olm para criptografia
-    /// * `plaintext` - Dados a criptografar
-    /// 
-    /// # Retorna
-    /// Tupla com mensagem criptografada e estatísticas da operação
-    fn olm_encrypt_instrumented(&mut self, session: &mut OlmSessionHandle, plaintext: &[u8]) -> (String, PqcOperationStats) {
-        let encrypted = self.olm_encrypt(session, plaintext);
-        let stats = PqcOperationStats {
-            total_time_ms: 0.0,
-            kem_time_ms: 0.0,
-            serialization_time_ms: 0.0,
-            ratchet_advanced: false,
-            message_overhead_bytes: encrypted.len(),
-            kem_algorithm: None,
-        };
-        (encrypted, stats)
-    }
 }
+

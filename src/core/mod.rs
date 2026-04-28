@@ -26,20 +26,3 @@ pub mod crypto;
 pub mod pqxdh;
 pub mod double_ratchet_pqc;
 pub mod providers;
-
-// Re-exports para API pública conveniente
-pub use crypto::{
-    CryptoProvider,
-    OlmSessionHandle
-};
-
-pub use providers::{
-    classical::VodoCrypto,
-    hybrid::VodoCryptoHybrid,
-};
-
-/// Versão da implementação core
-pub const CORE_VERSION: &str = "0.1.0";
-
-/// Versão do vodozemac subjacente
-pub const VODOZEMAC_VERSION: &str = "0.9.0";
