@@ -1140,8 +1140,8 @@ impl MatrixRoom {
         // Fase 0: Coletar pares (sender, receiver) onde sessão outbound já existe
         let mut session_pairs: Vec<(String, String)> = Vec::new();
         for (sender_id, sender) in self.members.iter() {
-            for receiver_id in sender.olm_sessions.keys() {
-                if sender_id != receiver_id {
+            for (receiver_id, olm_pair) in sender.olm_sessions.iter() {
+                if sender_id != receiver_id && olm_pair.outbound.is_some() {
                     session_pairs.push((sender_id.clone(), receiver_id.clone()));
                 }
             }
