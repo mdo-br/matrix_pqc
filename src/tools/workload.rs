@@ -8,21 +8,25 @@
 //! Implementações baseadas em:
 //!
 //! 1. Seufert et al. (2023) - "Share and Multiply: Modeling Communication 
-//!    and Generated Traffic in Private WhatsApp Groups"
+//!    and Generated Traffic in Private WhatsApp Groups".
+//!    DOI: https://doi.org/10.1109/ACCESS.2023.3254913
 //!    - Dataset: 76M mensagens de 117K usuários
 //!    - Análise de grupos privados e padrões multiplicativos
 //!
 //! 2. Seufert et al. (2015) - "Analysis of Group-Based Communication in WhatsApp"
+//!    DOI: https://doi.org/10.1007/978-3-319-26925-2_17
 //!    - Caracterização empírica de chats em grupo
 //!    - Modelagem com processo semi-Markov
 //!
-//! 3. Keshvadi et al. (2020) - "Traffic Characterization of Instant Messaging Apps"
+//! 3. Keshvadi et al. (2020) - "Traffic Characterization of 
+//!    Instant Messaging Apps: A Campus-Level View"
+//!    DOI: https://doi.org/10.1109/LCN48667.2020.9314799
 //!    - Análise de Facebook Messenger, WeChat, Snapchat
-
-#![allow(dead_code)]
 //!    - Padrões diurnos com picos de rajada
 //!
-//! 4. Rammos et al. (2021) - "Impact of Instant Messaging on Energy Consumption"
+//! 4. Rammos et al. (2021) - "The Impact of Instant Messaging on the 
+//!    Energy Consumption of Android Devices"
+//!    DOI: https://doi.org/10.1109/MobileSoft52590.2021.00007
 //!    - Estudo empírico WhatsApp/Telegram
 //!    - Modo burst vs. regular (10 msg/min vs. 50 msg/min)
 //!
@@ -33,6 +37,9 @@
 //! - Cenários de uso diferenciados (chat pequeno, grupo médio, canal grande)
 //! - Rotação de chaves baseada em cenários de uso real Matrix/Element
 //! - Tamanhos de mensagem realistas para texto, imagem, arquivo e voz
+
+#![allow(dead_code)]
+
 
 use rand::Rng;
 use std::time::Duration;
