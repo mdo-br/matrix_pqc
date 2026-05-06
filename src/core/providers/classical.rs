@@ -21,7 +21,6 @@
 use crate::core::crypto::*;
 use crate::utils::logging::VerbosityLevel;
 use crate::vlog;
-use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use vodozemac::{
     olm::{Account, SessionConfig, PreKeyMessage, Message, OlmMessage},
     megolm::{GroupSession, InboundGroupSession, MegolmMessage, SessionConfig as MegolmSessionConfig},
@@ -121,10 +120,9 @@ impl CryptoProvider for VodoCrypto {
     fn create_inbound_session(
         &mut self,
         _their_curve25519: &str,
-        prekey_message_b64: &str,
+        prekey_message: &[u8],
     ) -> Result<(OlmSessionHandle, Vec<u8>), CryptoError> {
-        let raw = B64.decode(prekey_message_b64).map_err(|_| CryptoError::B64)?;
-        let prekey = PreKeyMessage::from_bytes(&raw).map_err(|_| CryptoError::Protocol)?;
+        let prekey = PreKeyMessage::from_bytes(prekey_message).map_err(|_| CryptoError::Protocol)?;
         let their_identity_key = prekey.identity_key();
         let creation_result = self.account.create_inbound_session(their_identity_key, &prekey)
             .map_err(|_| CryptoError::Protocol)?;
@@ -155,7 +153,7 @@ impl CryptoProvider for VodoCrypto {
     /// - AES-256-CBC com PKCS#7 padding (plaintext)
     /// - HMAC-SHA-256 (autenticação do ciphertext)
     /// - Encrypt-then-MAC (ordem segura)
-    fn olm_encrypt(&mut self, session: &mut OlmSessionHandle, plaintext: &[u8]) -> String {
+    fn olm_encrypt(&mut self, session: &mut OlmSessionHandle, plaintext: &[u8]) -> Vec<u8> {
         // Verificar estado antes de encrypt
         let has_received_before = session.hybrid_session.has_received_message_classic();
         
@@ -174,8 +172,8 @@ impl CryptoProvider for VodoCrypto {
         }
         
         match message {
-            OlmMessage::PreKey(m) => B64.encode(&m.to_bytes()),
-            OlmMessage::Normal(m) => B64.encode(&m.to_bytes()),
+            OlmMessage::PreKey(m) => m.to_bytes(),
+            OlmMessage::Normal(m) => m.to_bytes(),
         }
     }
 
@@ -198,15 +196,15 @@ impl CryptoProvider for VodoCrypto {
     /// VERIFICAÇÃO:
     /// - HMAC-SHA-256 verificado antes da descriptografia (MAC-then-Decrypt)
     /// - Falha de MAC → rejeita mensagem (proteção contra adulteração)
-    fn olm_decrypt(&mut self, session: &mut OlmSessionHandle, message_b64: &str) -> Result<Vec<u8>, CryptoError> {
-        let raw = B64.decode(message_b64).map_err(|_| CryptoError::B64)?;
-        if let Ok(pre) = PreKeyMessage::from_bytes(&raw) {
+    fn olm_decrypt(&mut self, session: &mut OlmSessionHandle, message: &[u8]) -> Result<Vec<u8>, CryptoError> {
+        let raw = message;
+        if let Ok(pre) = PreKeyMessage::from_bytes(raw) {
             vlog!(VerbosityLevel::Debug, "  [DOUBLE RATCHET CLÁSSICO] Recebendo PreKeyMessage");
             vlog!(VerbosityLevel::Debug, "    └─Criando inbound session e processando primeira mensagem");
             let msg = OlmMessage::PreKey(pre);
             return session.hybrid_session.decrypt_classic(&msg).map_err(|_| CryptoError::Protocol);
         }
-        if let Ok(norm) = Message::from_bytes(&raw) {
+        if let Ok(norm) = Message::from_bytes(raw) {
             let had_received_before = session.hybrid_session.has_received_message_classic();
             vlog!(VerbosityLevel::Debug, "  [DOUBLE RATCHET CLÁSSICO] Recebendo Normal Message");
             if !had_received_before {
@@ -248,9 +246,9 @@ impl CryptoProvider for VodoCrypto {
     /// - Session key enviada via Olm session criptografada (ponto-a-ponto)
     /// - Cada membro recebe sua própria cópia via canal Olm individual
     /// - Garante que apenas membros autorizados possam descriptografar mensagens da sala
-    fn megolm_export_inbound(&self, room_key: &MegolmOutbound) -> String {
+    fn megolm_export_inbound(&self, room_key: &MegolmOutbound) -> Vec<u8> {
         let session_key = room_key.inner.session_key();
-        B64.encode(&session_key.to_bytes())
+        session_key.to_bytes()
     }
 
     /// Importa chave de sessão Megolm para descriptografia de grupo
@@ -264,9 +262,8 @@ impl CryptoProvider for VodoCrypto {
     /// - Ratchet forward-only: pode avançar mas não retroceder (segurança)
     /// - Out-of-order: mensagens podem chegar fora de ordem (ratchet avança conforme needed)
     /// - Mesma session key permite descriptografar todas mensagens futuras da sessão
-    fn megolm_import_inbound(&mut self, exported_b64: &str) -> MegolmInbound {
-        let raw = B64.decode(exported_b64).expect("b64");
-        let session_key = vodozemac::megolm::SessionKey::from_bytes(&raw).expect("session key");
+    fn megolm_import_inbound(&mut self, exported: &[u8]) -> MegolmInbound {
+        let session_key = vodozemac::megolm::SessionKey::from_bytes(exported).expect("session key");
         MegolmInbound {
             inner: InboundGroupSession::new(&session_key, MegolmSessionConfig::version_1()),
         }
@@ -287,9 +284,9 @@ impl CryptoProvider for VodoCrypto {
     /// - Message index: posição no ratchet (permite out-of-order decryption)
     /// - Ciphertext: AES-256-CBC(plaintext)
     /// - MAC: HMAC-SHA-256 truncado (primeiros 8 bytes)
-    fn megolm_encrypt(&mut self, outbound: &mut MegolmOutbound, plaintext: &[u8]) -> String {
+    fn megolm_encrypt(&mut self, outbound: &mut MegolmOutbound, plaintext: &[u8]) -> Vec<u8> {
         let msg = outbound.inner.encrypt(plaintext);
-        B64.encode(msg.to_bytes())
+        msg.to_bytes()
     }
 
     /// Descriptografa mensagem de grupo usando estado Megolm inbound
@@ -306,9 +303,8 @@ impl CryptoProvider for VodoCrypto {
     /// - Ratchet forward-only: avança até index necessário
     /// - Não retrocede: mensagens antigas podem ser perdidas se ratchet já avançou
     /// - Cache interno pode manter alguns estados antigos (implementação específica)
-    fn megolm_decrypt(&mut self, inbound: &mut MegolmInbound, message_b64: &str) -> Result<Vec<u8>, CryptoError> {
-        let raw = B64.decode(message_b64).map_err(|_| CryptoError::B64)?;
-        let msg = MegolmMessage::from_bytes(&raw).map_err(|_| CryptoError::Protocol)?;
+    fn megolm_decrypt(&mut self, inbound: &mut MegolmInbound, message: &[u8]) -> Result<Vec<u8>, CryptoError> {
+        let msg = MegolmMessage::from_bytes(message).map_err(|_| CryptoError::Protocol)?;
         let decrypted = inbound.inner.decrypt(&msg).map_err(|_| CryptoError::Protocol)?;
         Ok(decrypted.plaintext)
     }

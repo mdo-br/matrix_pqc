@@ -143,28 +143,28 @@ impl CryptoWrapper {
         }
     }
 
-    pub fn megolm_export_inbound(&mut self, outbound: &MegolmOutbound) -> String {
+    pub fn megolm_export_inbound(&mut self, outbound: &MegolmOutbound) -> Vec<u8> {
         match self {
             Self::Hybrid(crypto) => crypto.megolm_export_inbound(outbound),
             Self::Classical(crypto) => crypto.megolm_export_inbound(outbound),
         }
     }
 
-    pub fn megolm_import_inbound(&mut self, session_key: &str) -> MegolmInbound {
+    pub fn megolm_import_inbound(&mut self, session_key: &[u8]) -> MegolmInbound {
         match self {
             Self::Hybrid(crypto) => crypto.megolm_import_inbound(session_key),
             Self::Classical(crypto) => crypto.megolm_import_inbound(session_key),
         }
     }
 
-    pub fn megolm_encrypt(&mut self, session: &mut MegolmOutbound, plaintext: &[u8]) -> String {
+    pub fn megolm_encrypt(&mut self, session: &mut MegolmOutbound, plaintext: &[u8]) -> Vec<u8> {
         match self {
             Self::Hybrid(crypto) => crypto.megolm_encrypt(session, plaintext),
             Self::Classical(crypto) => crypto.megolm_encrypt(session, plaintext),
         }
     }
 
-    pub fn megolm_decrypt(&mut self, session: &mut MegolmInbound, ciphertext: &str) -> Result<Vec<u8>, CryptoError> {
+    pub fn megolm_decrypt(&mut self, session: &mut MegolmInbound, ciphertext: &[u8]) -> Result<Vec<u8>, CryptoError> {
         match self {
             Self::Hybrid(crypto) => crypto.megolm_decrypt(session, ciphertext),
             Self::Classical(crypto) => crypto.megolm_decrypt(session, ciphertext),
@@ -178,14 +178,14 @@ impl CryptoWrapper {
         }
     }
 
-    pub fn olm_encrypt(&mut self, session: &mut OlmSessionHandle, plaintext: &[u8]) -> String {
+    pub fn olm_encrypt(&mut self, session: &mut OlmSessionHandle, plaintext: &[u8]) -> Vec<u8> {
         match self {
             Self::Hybrid(crypto) => crypto.olm_encrypt(session, plaintext),
             Self::Classical(crypto) => crypto.olm_encrypt(session, plaintext),
         }
     }
 
-    pub fn olm_decrypt(&mut self, session: &mut OlmSessionHandle, ciphertext: &str) -> Result<Vec<u8>, CryptoError> {
+    pub fn olm_decrypt(&mut self, session: &mut OlmSessionHandle, ciphertext: &[u8]) -> Result<Vec<u8>, CryptoError> {
         match self {
             Self::Hybrid(crypto) => crypto.olm_decrypt(session, ciphertext),
             Self::Classical(crypto) => crypto.olm_decrypt(session, ciphertext),
@@ -206,10 +206,10 @@ impl CryptoWrapper {
         }
     }
 
-    pub fn create_inbound_session(&mut self, their_curve25519: &str, prekey_message_b64: &str) -> Result<(OlmSessionHandle, Vec<u8>), CryptoError> {
+    pub fn create_inbound_session(&mut self, their_curve25519: &str, prekey_message: &[u8]) -> Result<(OlmSessionHandle, Vec<u8>), CryptoError> {
         match self {
-            Self::Hybrid(crypto) => crypto.create_inbound_session(their_curve25519, prekey_message_b64),
-            Self::Classical(crypto) => crypto.create_inbound_session(their_curve25519, prekey_message_b64),
+            Self::Hybrid(crypto) => crypto.create_inbound_session(their_curve25519, prekey_message),
+            Self::Classical(crypto) => crypto.create_inbound_session(their_curve25519, prekey_message),
         }
     }
 
@@ -1048,7 +1048,7 @@ impl MatrixRoom {
             let session_key = sender.crypto.megolm_export_inbound(&megolm_outbound);
 
             // BATCH: Coletar todas as chaves cifradas para este sender
-            let mut batch_encrypted_keys: Vec<(String, String)> = Vec::new();
+            let mut batch_encrypted_keys: Vec<(String, Vec<u8>)> = Vec::new();
             
             for receiver_id in &member_ids {
                 if sender_id != receiver_id {
@@ -1133,7 +1133,7 @@ impl MatrixRoom {
     pub fn warmup_olm_sessions_bidirectional(&mut self) -> Result<()> {
         vlog!(VerbosityLevel::Normal, "   - [WARMUP] Estabelecendo peer_key bidirecionalmente em todas as sessões Olm");
         
-        let mut warmup_messages: Vec<(String, String, String)> = Vec::new(); // (sender, receiver, encrypted)
+        let mut warmup_messages: Vec<(String, String, Vec<u8>)> = Vec::new(); // (sender, receiver, encrypted)
         let mut warmup_sent = 0;
         let mut warmup_received = 0;
         
@@ -1297,7 +1297,7 @@ impl MatrixRoom {
             let session_key = sender.crypto.megolm_export_inbound(&new_megolm_outbound);
             
             // BATCH: Coletar todas as chaves cifradas para este sender
-            let mut batch_encrypted_keys: Vec<(String, String)> = Vec::new();
+            let mut batch_encrypted_keys: Vec<(String, Vec<u8>)> = Vec::new();
             
             for receiver_id in &member_ids {
                 if sender_id != receiver_id {
@@ -1549,7 +1549,7 @@ impl MatrixRoom {
     }
 
     /// Criptografa chave Megolm via canal Olm no modo multi-sender
-    fn encrypt_megolm_key_via_olm_multi_sender(&mut self, sender_id: &str, session_key: &str, receiver_id: &str) -> Result<String> {
+    fn encrypt_megolm_key_via_olm_multi_sender(&mut self, sender_id: &str, session_key: &[u8], receiver_id: &str) -> Result<Vec<u8>> {
         let start_time = std::time::Instant::now();
         
         vlog!(VerbosityLevel::Verbose, "      [ENCRYPT_CALL] {} -> {}", sender_id, receiver_id);
@@ -1578,7 +1578,7 @@ impl MatrixRoom {
         let ratchet_before = olm_session.get_ratchet_advances();
         let asymmetric_before = olm_session.get_asymmetric_advances();
 
-        let encrypted_key = sender.crypto.olm_encrypt(olm_session, session_key.as_bytes());
+        let encrypted_key = sender.crypto.olm_encrypt(olm_session, session_key);
 
         // LOG DETALHADO: Breakdown da mensagem
         vlog!(VerbosityLevel::Debug, "       [ENCRYPT_BREAKDOWN] {} -> {}:", sender_id, receiver_id);
@@ -1588,7 +1588,7 @@ impl MatrixRoom {
         vlog!(VerbosityLevel::Debug, "         └─ Has peer key: {}", olm_session.has_peer_key());
         
         // Tentar decodificar JSON para ver tipo de mensagem e breakdown detalhado
-        if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(&encrypted_key) {
+        if let Ok(json_val) = serde_json::from_slice::<serde_json::Value>(&encrypted_key) {
             if let Some(msg_type) = json_val.get("type").and_then(|t| t.as_u64()) {
                 vlog!(VerbosityLevel::Debug, "         └─ Message type: {}", msg_type);
                 if let Some(body) = json_val.get("body").and_then(|b| b.as_str()) {
@@ -1706,7 +1706,7 @@ impl MatrixRoom {
         // É a medição REAL do Agreement protocol
         let mut is_prekey_message = false;
         
-        if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(&encrypted_key) {
+        if let Ok(json_val) = serde_json::from_slice::<serde_json::Value>(&encrypted_key) {
             if let Some(msg_type) = json_val.get("type").and_then(|t| t.as_u64()) {
                 if msg_type == 0 {
                     is_prekey_message = true;
@@ -1761,7 +1761,7 @@ impl MatrixRoom {
             self.bandwidth_initial_distribution_primitives_megolm_key += megolm_key_size;
             
             // Parsear para extrair ratchet key e KEM CT
-            if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(&encrypted_key) {
+            if let Ok(json_val) = serde_json::from_slice::<serde_json::Value>(&encrypted_key) {
                 if let Some(body) = json_val.get("body").and_then(|b| b.as_str()) {
                     if let Ok(decoded) = B64.decode(body) {
                         if decoded.len() >= 19 {
@@ -1848,7 +1848,7 @@ impl MatrixRoom {
             self.bandwidth_rotation_primitives_megolm_key += megolm_key_size;
             
             // Para extrair ratchet key e KEM CT, precisamos parsear a mensagem
-            if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(&encrypted_key) {
+            if let Ok(json_val) = serde_json::from_slice::<serde_json::Value>(&encrypted_key) {
                 if let Some(body) = json_val.get("body").and_then(|b| b.as_str()) {
                     if let Ok(decoded) = B64.decode(body) {
                         // Parsear estrutura binária
@@ -1952,7 +1952,7 @@ impl MatrixRoom {
     }
 
     /// Descriptografa chave Megolm via canal Olm no modo multi-sender
-    fn decrypt_megolm_key_via_olm_multi_sender(&mut self, encrypted_key: &str, receiver_id: &str, sender_id: &str) -> Result<String> {
+    fn decrypt_megolm_key_via_olm_multi_sender(&mut self, encrypted_key: &[u8], receiver_id: &str, sender_id: &str) -> Result<Vec<u8>> {
         // Obter identidades do sender ANTES do borrow mutable
         let sender_identity_keys = {
             let sender = self.members.get(sender_id)
@@ -1985,8 +1985,7 @@ impl MatrixRoom {
                             self.num_asymmetric_advances += (asymmetric_after - asymmetric_before) as usize;
                         }
                         
-                        return String::from_utf8(decrypted_bytes)
-                            .map_err(|e| anyhow::anyhow!("Erro ao converter chave descriptografada: {}", e));
+                        return Ok(decrypted_bytes);
                     }
                     Err(_) => {
                         // Falha na sessão existente - pode ser PreKeyMessage
@@ -2012,8 +2011,7 @@ impl MatrixRoom {
                     .or_insert_with(OlmSessionPair::new);
                 pair.inbound = Some(inbound_session);
                 
-                String::from_utf8(decrypted_bytes)
-                    .map_err(|e| anyhow::anyhow!("Erro ao converter chave descriptografada: {}", e))
+                Ok(decrypted_bytes)
             }
             Err(e) => {
                 Err(anyhow::anyhow!("Falha na descriptografia de {} para {}: {}", sender_id, receiver_id, e))
@@ -2042,7 +2040,7 @@ impl MatrixRoom {
     }
 
     /// Envia mensagem na sala (com rotação automática)
-    pub fn send_message(&mut self, sender_id: &str, content: &[u8]) -> Result<String> {
+    pub fn send_message(&mut self, sender_id: &str, content: &[u8]) -> Result<Vec<u8>> {
         let start_time = std::time::Instant::now();
         
         // Verificar se rotação é necessária (usa rotate_megolm_only para preservar Olm)
@@ -2085,7 +2083,7 @@ impl MatrixRoom {
     }
 
     /// Descriptografa mensagem recebida
-    pub fn decrypt_message(&mut self, receiver_id: &str, encrypted_message: &str) -> Result<Vec<u8>> {
+    pub fn decrypt_message(&mut self, receiver_id: &str, encrypted_message: &[u8]) -> Result<Vec<u8>> {
         let member = self.members.get_mut(receiver_id)
             .context("Membro não encontrado")?;
 
@@ -2109,7 +2107,7 @@ impl MatrixRoom {
     }
     
     /// Criptografa mensagem simples via Olm (usado para warm-up bidirecional)
-    fn encrypt_simple_message(&mut self, sender_id: &str, receiver_id: &str, plaintext: &[u8]) -> Result<String> {
+    fn encrypt_simple_message(&mut self, sender_id: &str, receiver_id: &str, plaintext: &[u8]) -> Result<Vec<u8>> {
         let sender = self.members.get_mut(sender_id)
             .context("Sender não encontrado")?;
         
@@ -2123,7 +2121,7 @@ impl MatrixRoom {
     }
     
     /// Descriptografa mensagem simples via Olm (usado para warm-up bidirecional)
-    fn decrypt_simple_message(&mut self, encrypted: &str, receiver_id: &str, sender_id: &str) -> Result<Vec<u8>> {
+    fn decrypt_simple_message(&mut self, encrypted: &[u8], receiver_id: &str, sender_id: &str) -> Result<Vec<u8>> {
         // Primeiro, obter as chaves de identidade do sender
         let sender_identity_keys = {
             let sender = self.members.get(sender_id)
@@ -2165,7 +2163,7 @@ impl MatrixRoom {
     
     /// Extrai breakdown REAL de uma mensagem Olm criptografada
     /// Retorna: (classical_bytes, pqc_bytes)
-    fn extract_message_breakdown(encrypted_message: &str, crypto_mode: &CryptoMode) -> (usize, usize) {
+    fn extract_message_breakdown(encrypted_message: &[u8], crypto_mode: &CryptoMode) -> (usize, usize) {
         // Para Classical: toda mensagem é clássica
         if *crypto_mode == CryptoMode::Classical {
             return (encrypted_message.len(), 0);
@@ -2174,8 +2172,7 @@ impl MatrixRoom {
         vlog!(VerbosityLevel::Debug, "         └─[EXTRACT] Analisando mensagem de {} bytes", encrypted_message.len());
         
         // Para Hybrid: tentar decodificar o JSON e extrair componentes reais
-        // Formato esperado: {"type":X,"body":"base64_payload"}
-        if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(encrypted_message) {
+        if let Ok(json_val) = serde_json::from_slice::<serde_json::Value>(encrypted_message) {
             if let Some(msg_type) = json_val.get("type").and_then(|t| t.as_u64()) {
                 vlog!(VerbosityLevel::Debug, "            ├─ Tipo JSON: {}", msg_type);
                 if let Some(body) = json_val.get("body").and_then(|b| b.as_str()) {

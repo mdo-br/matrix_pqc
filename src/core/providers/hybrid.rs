@@ -44,7 +44,6 @@
 // - Upgrade transparente: Clientes antigos continuam funcionando, novos ganham proteção PQC
 
 use crate::core::crypto::*;
-use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use hkdf::Hkdf;
 use rand::Rng;
 use sha2::Sha256;
@@ -375,30 +374,21 @@ impl CryptoProvider for VodoCryptoHybrid {
     fn create_inbound_session(
         &mut self,
         _their_curve25519: &str,
-        prekey_message_b64: &str,
+        prekey_message: &[u8],
     ) -> Result<(OlmSessionHandle, Vec<u8>), CryptoError> {
         vlog!(VerbosityLevel::Debug, "[INBOUND] Criando sessão inbound");
-        vlog!(VerbosityLevel::Debug, "[INBOUND] Mensagem (primeiros 50 chars): {}...", &prekey_message_b64[..prekey_message_b64.len().min(50)]);
+        vlog!(VerbosityLevel::Debug, "[INBOUND] Tamanho da mensagem: {} bytes", prekey_message.len());
         
-        // DETECÇÃO AUTOMÁTICA DE FORMATO: JSON (PQC) vs Base64 (Clássico)
+        // DETECÇÃO AUTOMÁTICA DE FORMATO: JSON (PQC) vs bytes binários (Clássico)
         // 
-        // Por que detectar o formato?
+        // Mensagem PQC: bytes que ao interpretar como UTF-8 começam com `{"type":2,`
+        // Mensagem clássica: bytes binários da PreKeyMessage vodozemac
         // 
-        // Problema: Precisamos manter compatibilidade com clientes clássicos E híbridos
-        // 
-        // Solução: Detectar formato da mensagem pelo prefixo:
-        // - JSON: `{"type":2,"body":"..."}` → Mensagem híbrida PQC
-        // - Base64: `AwogICAgI...` → Mensagem clássica vodozemac
-        // 
-        // Benefícios:
-        // 1. Interoperabilidade: Clientes clássicos continuam funcionando
-        // 2. Upgrade gradual: Novos clientes podem usar PQC quando ambos suportam
-        // 3. Fallback automático: Se PQC falhar, usa clássico transparentemente
-        // 
-        if prekey_message_b64.trim_start().starts_with(r#"{"type":2,"#) {
+        if prekey_message.starts_with(b"{\"type\":2,") {
             vlog!(VerbosityLevel::Debug, "[INBOUND] Mensagem PQC detectada (JSON format)");
-            // Mensagem PQC - precisa deserializar do JSON primeiro
-            let pqc_msg = crate::core::double_ratchet_pqc::PqcOlmMessage::from_transport_string(prekey_message_b64)?;
+            let prekey_message_str = std::str::from_utf8(prekey_message).map_err(|_| CryptoError::Protocol)?;
+            // Mensagem PQC - deserializar do JSON primeiro
+            let pqc_msg = crate::core::double_ratchet_pqc::PqcOlmMessage::from_transport_string(prekey_message_str)?;
             
             // Extrair PreKeyMessage clássica do componente interno
             let prekey = match &pqc_msg.classic_component {
@@ -475,12 +465,9 @@ impl CryptoProvider for VodoCryptoHybrid {
             ));
         }
         
-        // Fallback: mensagem clássica (Base64 direto)
-        vlog!(VerbosityLevel::Debug, "[INBOUND] Mensagem clássica detectada (Base64)");
-        let raw = B64
-            .decode(prekey_message_b64)
-            .map_err(|_| CryptoError::B64)?;
-        let prekey = PreKeyMessage::from_bytes(&raw).map_err(|_| CryptoError::Protocol)?;
+        // Fallback: mensagem clássica (bytes binários diretos)
+        vlog!(VerbosityLevel::Debug, "[INBOUND] Mensagem clássica detectada (binário)");
+        let prekey = PreKeyMessage::from_bytes(prekey_message).map_err(|_| CryptoError::Protocol)?;
         let their_identity_key = prekey.identity_key();
 
         // Aceitar sessão Olm base primeiro
@@ -579,13 +566,13 @@ impl CryptoProvider for VodoCryptoHybrid {
     /// Modo Clássico:
     /// - Usa apenas vodozemac (X25519 DH + AES-256-CBC + HMAC-SHA-256)
     /// - Serialização Base64 padrão
-    fn olm_encrypt(&mut self, session: &mut OlmSessionHandle, plaintext: &[u8]) -> String {
+    fn olm_encrypt(&mut self, session: &mut OlmSessionHandle, plaintext: &[u8]) -> Vec<u8> {
         let verbosity = std::env::var("VERBOSITY").unwrap_or_default().parse::<u8>().unwrap_or(0);
         
         if session.pqc_enabled {
             // Modo híbrido com Double Ratchet PQC
             match session.hybrid_session.encrypt_hybrid(plaintext) {
-                Ok(pqc_msg) => pqc_msg.to_transport_string(),
+                Ok(pqc_msg) => pqc_msg.to_transport_string().into_bytes(),
                 Err(e) => {
                     vlog!(VerbosityLevel::Verbose, "  [DOUBLE RATCHET HÍBRIDO] ERRO: {:?} - Fallback para modo clássico", e);
                     // Fallback automático para modo clássico
@@ -602,8 +589,8 @@ impl CryptoProvider for VodoCryptoHybrid {
                         }
                     }
                     match message {
-                        vodozemac::olm::OlmMessage::PreKey(m) => base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &m.to_bytes()),
-                        vodozemac::olm::OlmMessage::Normal(m) => base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &m.to_bytes()),
+                        vodozemac::olm::OlmMessage::PreKey(m) => m.to_bytes(),
+                        vodozemac::olm::OlmMessage::Normal(m) => m.to_bytes(),
                     }
                 }
             }
@@ -623,8 +610,8 @@ impl CryptoProvider for VodoCryptoHybrid {
                 }
             }
             match message {
-                vodozemac::olm::OlmMessage::PreKey(m) => base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &m.to_bytes()),
-                vodozemac::olm::OlmMessage::Normal(m) => base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &m.to_bytes()),
+                vodozemac::olm::OlmMessage::PreKey(m) => m.to_bytes(),
+                vodozemac::olm::OlmMessage::Normal(m) => m.to_bytes(),
             }
         }
     }
@@ -652,18 +639,18 @@ impl CryptoProvider for VodoCryptoHybrid {
     fn olm_decrypt(
         &mut self,
         session: &mut OlmSessionHandle,
-        message_b64: &str,
+        message: &[u8],
     ) -> Result<Vec<u8>, CryptoError> {
-        vlog!(VerbosityLevel::Debug, "[DECRYPT] Recebida mensagem (primeiros 50 chars): {}...", &message_b64[..message_b64.len().min(50)]);
-        vlog!(VerbosityLevel::Debug, "[DECRYPT] Tamanho total: {} bytes", message_b64.len());
+        vlog!(VerbosityLevel::Debug, "[DECRYPT] Tamanho total: {} bytes", message.len());
         
-        // PASSO 1: Tentar deserializar como mensagem PQC (formato JSON)
+        // PASSO 1: Tentar deserializar como mensagem PQC (formato JSON UTF-8)
         // Identificação: Prefixo `{"type":2,` indica mensagem híbrida PQC
-        if message_b64.trim_start().starts_with(r#"{"type":2,"#) {
+        if message.starts_with(b"{\"type\":2,") {
             vlog!(VerbosityLevel::Debug, "[DECRYPT] Mensagem identificada como PQC (JSON type 2)");
             
             if session.pqc_enabled {
-                match crate::core::double_ratchet_pqc::PqcOlmMessage::from_transport_string(message_b64) {
+                let message_str = std::str::from_utf8(message).map_err(|_| CryptoError::Protocol)?;
+                match crate::core::double_ratchet_pqc::PqcOlmMessage::from_transport_string(message_str) {
                     Ok(pqc_msg) => {
                         return session.hybrid_session.decrypt_hybrid(&pqc_msg)
                             .map_err(|_| CryptoError::Protocol);
@@ -679,13 +666,11 @@ impl CryptoProvider for VodoCryptoHybrid {
             }
         }
 
-        // PASSO 2: Fallback para mensagem clássica (Base64 puro)
-        // Identificação: Não tem prefixo JSON, então é Base64 vodozemac direto
-        vlog!(VerbosityLevel::Debug, "[DECRYPT] Tentando decodificar como mensagem clássica (Base64)");
-        let raw = B64.decode(message_b64).map_err(|_| CryptoError::B64)?;
+        // PASSO 2: Fallback para mensagem clássica (bytes binários diretos)
+        vlog!(VerbosityLevel::Debug, "[DECRYPT] Tentando decodificar como mensagem clássica (binário)");
 
         // Tentar PreKeyMessage
-        if let Ok(pre) = PreKeyMessage::from_bytes(&raw) {
+        if let Ok(pre) = PreKeyMessage::from_bytes(message) {
             let msg = OlmMessage::PreKey(pre);
             match session.hybrid_session.decrypt_classic(&msg) {
                 Ok(plaintext) => return Ok(plaintext),
@@ -697,7 +682,7 @@ impl CryptoProvider for VodoCryptoHybrid {
         }
 
         // Tentar Message normal
-        if let Ok(norm) = Message::from_bytes(&raw) {
+        if let Ok(norm) = Message::from_bytes(message) {
             let msg = OlmMessage::Normal(norm);
             match session.hybrid_session.decrypt_classic(&msg) {
                 Ok(plaintext) => return Ok(plaintext),
@@ -730,34 +715,29 @@ impl CryptoProvider for VodoCryptoHybrid {
     }
 
     /// Exporta chave Megolm para distribuição via Olm
-    fn megolm_export_inbound(&self, room_key: &MegolmOutbound) -> String {
+    fn megolm_export_inbound(&self, room_key: &MegolmOutbound) -> Vec<u8> {
         let session_key = room_key.inner.session_key();
-        B64.encode(&session_key.to_bytes())
+        session_key.to_bytes()
     }
 
-    /// Importa chave Megolm recebida via Olm
-    fn megolm_import_inbound(&mut self, exported_b64: &str) -> MegolmInbound {
-        let raw = B64.decode(exported_b64).expect("b64");
-        let session_key = vodozemac::megolm::SessionKey::from_bytes(&raw).expect("session key");
+    fn megolm_import_inbound(&mut self, exported: &[u8]) -> MegolmInbound {
+        let session_key = vodozemac::megolm::SessionKey::from_bytes(exported).expect("session key");
         MegolmInbound {
             inner: InboundGroupSession::new(&session_key, MegolmSessionConfig::version_1()),
         }
     }
 
-    /// Criptografa mensagem de grupo via Megolm
-    fn megolm_encrypt(&mut self, outbound: &mut MegolmOutbound, plaintext: &[u8]) -> String {
+    fn megolm_encrypt(&mut self, outbound: &mut MegolmOutbound, plaintext: &[u8]) -> Vec<u8> {
         let msg = outbound.inner.encrypt(plaintext);
-        B64.encode(msg.to_bytes())
+        msg.to_bytes()
     }
 
-    /// Descriptografa mensagem de grupo via Megolm
     fn megolm_decrypt(
         &mut self,
         inbound: &mut MegolmInbound,
-        message_b64: &str,
+        message: &[u8],
     ) -> Result<Vec<u8>, CryptoError> {
-        let raw = B64.decode(message_b64).map_err(|_| CryptoError::B64)?;
-        let msg = MegolmMessage::from_bytes(&raw).map_err(|_| CryptoError::Protocol)?;
+        let msg = MegolmMessage::from_bytes(message).map_err(|_| CryptoError::Protocol)?;
         let decrypted = inbound
             .inner
             .decrypt(&msg)

@@ -330,7 +330,7 @@ pub trait CryptoProvider {
     /// 
     /// # Parâmetros
     /// * `their_curve25519` - Chave pública do remetente
-    /// * `prekey_message_b64` - PreKeyMessage codificada em Base64
+    /// * `prekey_message` - Bytes brutos da PreKeyMessage serializada
     /// 
     /// # Retorno
     /// Tupla contendo (sessão_criada, mensagem_inicial_descriptografada)
@@ -341,7 +341,7 @@ pub trait CryptoProvider {
     fn create_inbound_session(
         &mut self,
         their_curve25519: &str,
-        prekey_message_b64: &str,
+        prekey_message: &[u8],
     ) -> Result<(OlmSessionHandle, Vec<u8>), CryptoError>;
     
     /// Criptografa mensagem usando sessão Olm
@@ -352,7 +352,10 @@ pub trait CryptoProvider {
     /// # Parâmetros
     /// * `session` - Sessão Olm para criptografia
     /// * `plaintext` - Dados a criptografar
-    fn olm_encrypt(&mut self, session: &mut OlmSessionHandle, plaintext: &[u8]) -> String;
+    /// 
+    /// # Retorno
+    /// Bytes brutos da mensagem serializada (PreKeyMessage ou Normal Message)
+    fn olm_encrypt(&mut self, session: &mut OlmSessionHandle, plaintext: &[u8]) -> Vec<u8>;
     
     /// Descriptografa mensagem usando sessão Olm
     /// 
@@ -361,8 +364,8 @@ pub trait CryptoProvider {
     /// 
     /// # Parâmetros
     /// * `session` - Sessão Olm para descriptografia
-    /// * `message_b64` - Mensagem criptografada em Base64
-    fn olm_decrypt(&mut self, session: &mut OlmSessionHandle, message_b64: &str) -> Result<Vec<u8>, CryptoError>;
+    /// * `message` - Bytes brutos da mensagem serializada
+    fn olm_decrypt(&mut self, session: &mut OlmSessionHandle, message: &[u8]) -> Result<Vec<u8>, CryptoError>;
     
     /// Cria sessão Megolm outbound para comunicação em grupo
     /// 
@@ -377,7 +380,10 @@ pub trait CryptoProvider {
     /// 
     /// # Parâmetros
     /// * `room_key` - Sessão Megolm outbound a exportar
-    fn megolm_export_inbound(&self, room_key: &MegolmOutbound) -> String;
+    /// 
+    /// # Retorno
+    /// Bytes brutos da session key serializada
+    fn megolm_export_inbound(&self, room_key: &MegolmOutbound) -> Vec<u8>;
     
     /// Importa chave de sessão Megolm recebida
     /// 
@@ -385,8 +391,8 @@ pub trait CryptoProvider {
     /// permitindo descriptografar mensagens do grupo.
     /// 
     /// # Parâmetros
-    /// * `exported_b64` - Chave de sessão exportada em Base64
-    fn megolm_import_inbound(&mut self, exported_b64: &str) -> MegolmInbound;
+    /// * `exported` - Bytes brutos da session key serializada
+    fn megolm_import_inbound(&mut self, exported: &[u8]) -> MegolmInbound;
     
     /// Criptografa mensagem para grupo usando Megolm
     /// 
@@ -396,7 +402,10 @@ pub trait CryptoProvider {
     /// # Parâmetros
     /// * `outbound` - Sessão Megolm outbound
     /// * `plaintext` - Dados a criptografar
-    fn megolm_encrypt(&mut self, outbound: &mut MegolmOutbound, plaintext: &[u8]) -> String;
+    /// 
+    /// # Retorno
+    /// Bytes brutos da mensagem Megolm serializada
+    fn megolm_encrypt(&mut self, outbound: &mut MegolmOutbound, plaintext: &[u8]) -> Vec<u8>;
     
     /// Descriptografa mensagem de grupo usando Megolm
     /// 
@@ -405,7 +414,7 @@ pub trait CryptoProvider {
     /// 
     /// # Parâmetros
     /// * `inbound` - Sessão Megolm inbound
-    /// * `message_b64` - Mensagem criptografada em Base64
-    fn megolm_decrypt(&mut self, inbound: &mut MegolmInbound, message_b64: &str) -> Result<Vec<u8>, CryptoError>;
+    /// * `message` - Bytes brutos da mensagem Megolm serializada
+    fn megolm_decrypt(&mut self, inbound: &mut MegolmInbound, message: &[u8]) -> Result<Vec<u8>, CryptoError>;
 }
 

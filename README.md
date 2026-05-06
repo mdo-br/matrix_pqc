@@ -490,9 +490,9 @@ Na análise **"Time by Phase"**, observar:
 - **`encrypt_steady_state_ms`**: overhead ≈ 0% (Megolm AES-256 não é alterado)
 - Em valores absolutos, o overhead por evento PQC varia de ≈16 ms (rotação individual em LargeChannel) a ≈100 ms (setup em salas grandes)
 
-### Variações aceitáveis
+### Variações entre ambientes
 
-Tempos absolutos variam conforme hardware (CPU, frequência, carga do sistema). Espera-se que os **overheads percentuais** sejam consistentes, enquanto valores absolutos podem diferir proporcionalmente à velocidade da CPU.
+Os tempos absolutos variam conforme o ambiente de execução, incluindo CPU, frequência, carga do sistema, sistema operacional, compilador e bibliotecas utilizadas. Os overheads percentuais também podem variar, especialmente quando o baseline clássico apresenta tempos muito baixos. Por isso, os resultados devem ser interpretados em conjunto: percentuais, tempos absolutos, dispersão estatística e configuração experimental. 
 
 ---
 

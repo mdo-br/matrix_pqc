@@ -1,0 +1,13 @@
+phase,room_type,metric,classical_median,hybrid_median,delta_median,delta_iqr,delta_p95,overhead_pct,test_name,p_value,p_holm,effect_size,effect_magnitude,ci_lower,ci_upper,n_pairs,n_clean,is_normal
+Agreement,DM,bandwidth_agreement,110.0,2684.0,2574.0,0.0,2574.0,2340.0,paired_t,0.0,0.0,0.0,Cohen's d,2574.0,2574.0,600,600,True
+Agreement,LargeChannel,bandwidth_agreement,16449.0,399930.0,383481.0,0.0,383481.0,2331.333211745395,paired_t,0.0,0.0,0.0,Cohen's d,383481.0,383481.0,120,120,True
+Agreement,MediumGroup,bandwidth_agreement,2649.0,64418.0,61769.0,0.0,61769.0,2331.785579463949,paired_t,0.0,0.0,0.0,Cohen's d,61769.0,61769.0,240,240,True
+Agreement,SmallGroup,bandwidth_agreement,662.0,16104.0,15442.0,0.0,15442.0,2332.628398791541,paired_t,0.0,0.0,0.0,Cohen's d,15442.0,15442.0,360,360,True
+Initial_Distribution,DM,bandwidth_initial_distribution,664.0,2336.0,1672.0,0.0,1672.0,251.80722891566262,paired_t,0.0,0.0,0.0,Cohen's d,1672.0,1672.0,600,600,True
+Initial_Distribution,LargeChannel,bandwidth_initial_distribution,98936.0,348064.0,249128.0,0.0,249128.0,251.80722891566262,paired_t,0.0,0.0,0.0,Cohen's d,249128.0,249128.0,120,120,True
+Initial_Distribution,MediumGroup,bandwidth_initial_distribution,15936.0,56064.0,40128.0,0.0,40128.0,251.80722891566262,paired_t,0.0,0.0,0.0,Cohen's d,40128.0,40128.0,240,240,True
+Initial_Distribution,SmallGroup,bandwidth_initial_distribution,3984.0,14016.0,10032.0,0.0,10032.0,251.80722891566262,paired_t,0.0,0.0,0.0,Cohen's d,10032.0,10032.0,360,360,True
+Rotation,DM,bandwidth_rotation,4980.0,17520.0,12540.0,13794.0,33440.0,251.80722891566262,Wilcoxon,1.6781798766444318e-101,6.712719506577727e-101,-0.625,Cliff's delta,8360.0,16720.0,600,600,False
+Rotation,LargeChannel,bandwidth_rotation,1830316.0,6439184.0,4608868.0,5231688.0,12456400.0,251.80722891566262,Wilcoxon,9.64627280339421e-22,9.64627280339421e-22,-0.625,Cliff's delta,2989536.0,6228200.0,120,120,False
+Rotation,MediumGroup,bandwidth_rotation,239040.0,840960.0,601920.0,662112.0,1605120.0,251.80722891566262,Wilcoxon,9.610456041733557e-42,1.9220912083467114e-41,-0.625,Cliff's delta,401280.0,802560.0,240,240,False
+Rotation,SmallGroup,bandwidth_rotation,43824.0,154176.0,110352.0,127908.0,300960.0,251.80722891566262,Wilcoxon,1.1016382370157756e-61,3.304914711047327e-61,-0.625,Cliff's delta,70224.0,150480.0,360,360,False
