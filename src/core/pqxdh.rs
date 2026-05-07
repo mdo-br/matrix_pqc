@@ -45,52 +45,8 @@ use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use rand::{rngs::OsRng, CryptoRng, RngCore};
 use std::collections::HashMap;
 use crate::utils::logging::VerbosityLevel;
+use crate::utils::serde_helpers;
 use crate::vlog;
-
-/// Helpers serde para serializar/desserializar material criptográfico como Base64 na fronteira JSON.
-/// Internamente os campos são bytes (`[u8; N]` ou `Vec<u8>`); Base64 aparece apenas no wire format.
-mod base64_serde {
-    use base64::{engine::general_purpose::STANDARD as B64, Engine};
-    use serde::{Deserializer, Serializer, Deserialize};
-
-    /// Serializa `[u8; 32]` como Base64; desserializa Base64 → `[u8; 32]`.
-    pub mod bytes_32 {
-        use super::*;
-        pub fn serialize<S: Serializer>(bytes: &[u8; 32], s: S) -> Result<S::Ok, S::Error> {
-            s.serialize_str(&B64.encode(bytes))
-        }
-        pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<[u8; 32], D::Error> {
-            let s = String::deserialize(d)?;
-            let v = B64.decode(&s).map_err(serde::de::Error::custom)?;
-            v.try_into().map_err(|_| serde::de::Error::custom("tamanho inválido: esperado [u8; 32]"))
-        }
-    }
-
-    /// Serializa `[u8; 64]` como Base64; desserializa Base64 → `[u8; 64]`.
-    pub mod bytes_64 {
-        use super::*;
-        pub fn serialize<S: Serializer>(bytes: &[u8; 64], s: S) -> Result<S::Ok, S::Error> {
-            s.serialize_str(&B64.encode(bytes))
-        }
-        pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<[u8; 64], D::Error> {
-            let s = String::deserialize(d)?;
-            let v = B64.decode(&s).map_err(serde::de::Error::custom)?;
-            v.try_into().map_err(|_| serde::de::Error::custom("tamanho inválido: esperado [u8; 64]"))
-        }
-    }
-
-    /// Serializa `Vec<u8>` como Base64; desserializa Base64 → `Vec<u8>`.
-    pub mod vec_bytes {
-        use super::*;
-        pub fn serialize<S: Serializer>(bytes: &[u8], s: S) -> Result<S::Ok, S::Error> {
-            s.serialize_str(&B64.encode(bytes))
-        }
-        pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<u8>, D::Error> {
-            let s = String::deserialize(d)?;
-            B64.decode(&s).map_err(serde::de::Error::custom)
-        }
-    }
-}
 
 /// Wrapper para KyberSecretKey que implementa Drop para zeroização.
 /// 
@@ -245,11 +201,11 @@ pub struct SignedX25519Prekey {
     /// Identificador único da prekey no servidor
     pub key_id: String,
     /// Chave pública X25519 em bytes (32 bytes); serializada como Base64 no wire format
-    #[serde(with = "base64_serde::bytes_32")]
+    #[serde(with = "serde_helpers::bytes_32")]
     pub public_key: [u8; 32],
     /// Assinatura Ed25519 em bytes (64 bytes); serializada como Base64 no wire format
     /// Produzida pela chave de identidade para garantir autenticidade
-    #[serde(with = "base64_serde::bytes_64")]
+    #[serde(with = "serde_helpers::bytes_64")]
     pub signature: [u8; 64],
 }
 
@@ -262,11 +218,11 @@ pub struct SignedKyberPrekey {
     /// Identificador único da prekey Kyber no servidor
     pub key_id: String,
     /// Chave pública Kyber em bytes (~1568 bytes para Kyber-1024); serializada como Base64 no wire format
-    #[serde(with = "base64_serde::vec_bytes")]
+    #[serde(with = "serde_helpers::vec_bytes")]
     pub public_key: Vec<u8>,
     /// Assinatura Ed25519 em bytes (64 bytes); serializada como Base64 no wire format
     /// Produzida pela chave de identidade para garantir autenticidade
-    #[serde(with = "base64_serde::bytes_64")]
+    #[serde(with = "serde_helpers::bytes_64")]
     pub signature: [u8; 64],
 }
 
@@ -287,28 +243,28 @@ pub struct MatrixPqxdhInitMessage {
     
     /// Chave pública de assinatura do remetente (Ed25519, 32 bytes; Base64 no wire)
     /// Usada apenas para verificação de assinaturas, NÃO para operações DH
-    #[serde(with = "base64_serde::bytes_32")]
+    #[serde(with = "serde_helpers::bytes_32")]
     pub sender_signing_key: [u8; 32],
     
     /// Chave pública de identidade DH do remetente (Curve25519, 32 bytes; Base64 no wire)
     /// INDEPENDENTE da signing_key, gerada separadamente no modelo vodozemac
     /// Usada no primeiro acordo DH (dh1)
-    #[serde(with = "base64_serde::bytes_32")]
+    #[serde(with = "serde_helpers::bytes_32")]
     pub sender_dh_public_key: [u8; 32],
     
     /// Assinatura cross-key da chave DH do remetente (Ed25519, 64 bytes; Base64 no wire)
     /// A signing_key Ed25519 assina a diffie_hellman_key Curve25519
     /// Garante binding criptográfico entre as duas identidades do remetente
-    #[serde(with = "base64_serde::bytes_64")]
+    #[serde(with = "serde_helpers::bytes_64")]
     pub sender_dh_key_signature: [u8; 64],
     
     /// Chave pública X25519 efêmera (32 bytes; Base64 no wire)
     /// Gerada especificamente para este acordo de chaves
-    #[serde(with = "base64_serde::bytes_32")]
+    #[serde(with = "serde_helpers::bytes_32")]
     pub ephemeral_key: [u8; 32],
     /// Ciphertext Kyber resultante do encapsulamento (bytes variáveis; Base64 no wire)
     /// Contém segredo compartilhado encapsulado com a prekey Kyber do destinatário
-    #[serde(with = "base64_serde::vec_bytes")]
+    #[serde(with = "serde_helpers::vec_bytes")]
     pub kyber_ciphertext: Vec<u8>,
     /// ID da prekey X25519 utilizada do destinatário
     /// Permite ao destinatário localizar a chave privada correta
