@@ -6,8 +6,7 @@ use clap::{Parser, ValueEnum};
 
 mod core;
 mod protocols;
-mod demos;
-mod tools;
+mod benchmark;
 mod utils;
 
 #[derive(Debug, Clone, Copy, PartialEq, ValueEnum)]
@@ -83,7 +82,7 @@ fn main() -> Result<()> {
 }
 
 fn run_user_profile_benchmark(args: &Args) -> Result<()> {
-    use demos::user_profile_benchmark::{run_paired_benchmark, save_paired_runs_csv};
+    use benchmark::{run_paired_benchmark, save_paired_runs_csv};
     use chrono::Local;
 
     let user_id = "@alice:matrix.org";

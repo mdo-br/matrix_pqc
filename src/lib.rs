@@ -9,7 +9,9 @@ pub mod utils {
     pub mod serde_helpers;
 }
 
-pub mod tools {
+pub mod benchmark {
+    pub mod metrics;
+    pub mod runner;
     pub mod workload;
 }
 
