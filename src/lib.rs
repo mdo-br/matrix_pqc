@@ -16,9 +16,8 @@ pub mod benchmark {
 }
 
 pub mod core {
-    pub mod pqxdh {
-        pub use crate::pqxdh::*;
-    }
+    #[path = "../core/pqxdh/mod.rs"]
+    pub mod pqxdh;
     
     pub mod crypto {
         pub use crate::crypto::*;
@@ -42,9 +41,6 @@ pub mod core {
 pub mod protocols;
 
 // Re-exportar módulos internos
-#[path = "core/pqxdh.rs"]
-mod pqxdh;
-
 #[path = "core/crypto.rs"]
 mod crypto;
 

@@ -29,7 +29,7 @@ results/resultados_experiment_*.csv
 # Artefatos gerados pelo script de análise
 tables_and_plots/
 
-# Scripts de análise local (não fazem parte do artefato)
+# Scripts de análise local
 scripts/compare_baseline.py
 
 # artigo SBRC
