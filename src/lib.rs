@@ -44,7 +44,7 @@ pub mod protocols;
 #[path = "core/crypto.rs"]
 mod crypto;
 
-#[path = "core/double_ratchet_pqc.rs"]
+#[path = "core/double_ratchet_pqc/mod.rs"]
 mod double_ratchet;
 
 #[path = "core/providers/"]
