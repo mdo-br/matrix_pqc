@@ -18,3 +18,6 @@ pub use runner::{benchmark_room, run_paired_benchmark, save_paired_runs_csv};
 #[allow(unused_imports)]
 pub use workload::{MessageType, TrafficPattern, UsageScenario, WorkloadConfig,
                    MessageGenerator, TrafficGenerator};
+
+#[cfg(test)]
+mod workload_tests;

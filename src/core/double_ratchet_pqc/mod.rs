@@ -29,3 +29,6 @@ pub use keys::{PqcRatchetKeyPair, PqcRatchetPublicKey};
 pub use message::PqcOlmMessage;
 pub use session::{HybridOlmSession, SessionStats};
 pub use state::{PqcDoubleRatchetState, PqcRatchetState, RatchetStats};
+
+#[cfg(test)]
+mod tests;
