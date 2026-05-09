@@ -18,9 +18,11 @@
 //   * Derivação: HKDF-SHA-256 com info "MEGOLM_KEYS"
 //   * Criptografia: AES-256-CBC + HMAC-SHA-256 (Encrypt-then-MAC)
 
+use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use crate::core::crypto::*;
 use crate::utils::logging::VerbosityLevel;
 use crate::vlog;
+use serde_json;
 use vodozemac::{
     olm::{Account, SessionConfig, PreKeyMessage, Message, OlmMessage},
     megolm::{GroupSession, InboundGroupSession, MegolmMessage, SessionConfig as MegolmSessionConfig},
@@ -171,10 +173,14 @@ impl CryptoProvider for VodoCrypto {
             }
         }
         
-        match message {
-            OlmMessage::PreKey(m) => m.to_bytes(),
-            OlmMessage::Normal(m) => m.to_bytes(),
-        }
+        // Serializar no formato Matrix: {"type":N,"body":"<base64>"}
+        // Consistente com o modo Híbrido PQC ({"type":2,"body":"..."})
+        let (msg_type, raw_bytes) = match message {
+            OlmMessage::PreKey(m) => (0u8, m.to_bytes()),
+            OlmMessage::Normal(m) => (1u8, m.to_bytes()),
+        };
+        let body_b64 = B64.encode(&raw_bytes);
+        format!("{{\"type\":{},\"body\":\"{}\"}}", msg_type, body_b64).into_bytes()
     }
 
     /// Descriptografa mensagem Olm usando Double Ratchet clássico
@@ -197,14 +203,24 @@ impl CryptoProvider for VodoCrypto {
     /// - HMAC-SHA-256 verificado antes da descriptografia (MAC-then-Decrypt)
     /// - Falha de MAC → rejeita mensagem (proteção contra adulteração)
     fn olm_decrypt(&mut self, session: &mut OlmSessionHandle, message: &[u8]) -> Result<Vec<u8>, CryptoError> {
-        let raw = message;
-        if let Ok(pre) = PreKeyMessage::from_bytes(raw) {
+        // Desembrulhar formato Matrix: {"type":N,"body":"<base64>"}
+        let raw: Vec<u8> = if let Ok(json_val) = serde_json::from_slice::<serde_json::Value>(message) {
+            if let Some(body_b64) = json_val.get("body").and_then(|b| b.as_str()) {
+                B64.decode(body_b64).map_err(|_| CryptoError::B64)?
+            } else {
+                message.to_vec()
+            }
+        } else {
+            message.to_vec()
+        };
+
+        if let Ok(pre) = PreKeyMessage::from_bytes(&raw) {
             vlog!(VerbosityLevel::Debug, "  [DOUBLE RATCHET CLÁSSICO] Recebendo PreKeyMessage");
             vlog!(VerbosityLevel::Debug, "    └─Criando inbound session e processando primeira mensagem");
             let msg = OlmMessage::PreKey(pre);
             return session.hybrid_session.decrypt_classic(&msg).map_err(|_| CryptoError::Protocol);
         }
-        if let Ok(norm) = Message::from_bytes(raw) {
+        if let Ok(norm) = Message::from_bytes(&raw) {
             let had_received_before = session.hybrid_session.has_received_message_classic();
             vlog!(VerbosityLevel::Debug, "  [DOUBLE RATCHET CLÁSSICO] Recebendo Normal Message");
             if !had_received_before {
@@ -286,7 +302,9 @@ impl CryptoProvider for VodoCrypto {
     /// - MAC: HMAC-SHA-256 truncado (primeiros 8 bytes)
     fn megolm_encrypt(&mut self, outbound: &mut MegolmOutbound, plaintext: &[u8]) -> Vec<u8> {
         let msg = outbound.inner.encrypt(plaintext);
-        msg.to_bytes()
+        // Formato Matrix: {"type":3,"body":"<base64>"} — consistente com modo Híbrido
+        let body_b64 = B64.encode(msg.to_bytes());
+        format!("{{\"type\":3,\"body\":\"{}\"}}", body_b64).into_bytes()
     }
 
     /// Descriptografa mensagem de grupo usando estado Megolm inbound
@@ -304,7 +322,17 @@ impl CryptoProvider for VodoCrypto {
     /// - Não retrocede: mensagens antigas podem ser perdidas se ratchet já avançou
     /// - Cache interno pode manter alguns estados antigos (implementação específica)
     fn megolm_decrypt(&mut self, inbound: &mut MegolmInbound, message: &[u8]) -> Result<Vec<u8>, CryptoError> {
-        let msg = MegolmMessage::from_bytes(message).map_err(|_| CryptoError::Protocol)?;
+        // Desembrulhar formato Matrix: {"type":3,"body":"<base64>"}
+        let raw: Vec<u8> = if let Ok(json_val) = serde_json::from_slice::<serde_json::Value>(message) {
+            if let Some(body_b64) = json_val.get("body").and_then(|b| b.as_str()) {
+                B64.decode(body_b64).map_err(|_| CryptoError::B64)?
+            } else {
+                message.to_vec()
+            }
+        } else {
+            message.to_vec()
+        };
+        let msg = MegolmMessage::from_bytes(&raw).map_err(|_| CryptoError::Protocol)?;
         let decrypted = inbound.inner.decrypt(&msg).map_err(|_| CryptoError::Protocol)?;
         Ok(decrypted.plaintext)
     }

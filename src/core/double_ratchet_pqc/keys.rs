@@ -136,6 +136,8 @@ pub struct PqcRatchetPublicKey {
     pub kem_algorithm: KemAlgorithm,
 }
 
+/// Métodos de diagnóstico/utilidade — API pública sem consumidores internos
+#[allow(dead_code)]
 impl PqcRatchetPublicKey {
     /// Calcula tamanho total em bytes (dinâmico)
     pub fn size_bytes(&self) -> usize {
@@ -152,6 +154,19 @@ impl PqcRatchetPublicKey {
         )
     }
 
+    /// Serializa para Base64 seguindo padrão vodozemac
+    pub fn to_base64(&self) -> String {
+        B64.encode(&self.to_bytes())
+    }
+
+    /// Desserializa de Base64
+    pub fn from_base64(b64: &str) -> Result<Self, CryptoError> {
+        let bytes = B64.decode(b64).map_err(|_| CryptoError::Protocol)?;
+        Self::from_bytes(&bytes)
+    }
+}
+
+impl PqcRatchetPublicKey {
     /// Serializa para bytes brutos (sem Base64)
     /// Formato: [32B Curve25519] [2B kem_size] [kem_bytes] [1B algorithm]
     pub fn to_bytes(&self) -> Vec<u8> {
@@ -174,12 +189,6 @@ impl PqcRatchetPublicKey {
         serialized.extend_from_slice(&kem_bytes);
         serialized.push(algorithm_byte);
         serialized
-    }
-
-    /// Serializa para Base64 seguindo padrão vodozemac
-    #[allow(dead_code)]
-    pub fn to_base64(&self) -> String {
-        B64.encode(&self.to_bytes())
     }
 
     /// Desserializa de bytes brutos
@@ -233,13 +242,6 @@ impl PqcRatchetPublicKey {
             kem_public_key,
             kem_algorithm,
         })
-    }
-
-    /// Desserializa de Base64
-    #[allow(dead_code)]
-    pub fn from_base64(b64: &str) -> Result<Self, CryptoError> {
-        let bytes = B64.decode(b64).map_err(|_| CryptoError::Protocol)?;
-        Self::from_bytes(&bytes)
     }
 }
 

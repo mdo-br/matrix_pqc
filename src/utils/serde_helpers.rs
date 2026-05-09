@@ -2,18 +2,7 @@
 /// Base64 na fronteira JSON.
 ///
 /// Internamente os campos são bytes (`[u8; N]` ou `Vec<u8>`); Base64 aparece
-/// apenas no wire format, nunca nas interfaces internas entre módulos.
-///
-/// Uso:
-/// ```ignore
-/// use crate::utils::serde_helpers;
-///
-/// #[derive(Serialize, Deserialize)]
-/// struct MinhaChave {
-///     #[serde(with = "serde_helpers::bytes_32")]
-///     pub chave: [u8; 32],
-/// }
-/// ```
+/// apenas no formato JSON, nunca nas interfaces internas entre módulos.
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use serde::{Deserializer, Serializer, Deserialize};
 

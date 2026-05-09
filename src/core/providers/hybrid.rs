@@ -43,6 +43,7 @@
 // - Detecção automática: Formato de mensagem identifica modo (JSON type:2 = PQC, Base64 = clássico)
 // - Upgrade transparente: Clientes antigos continuam funcionando, novos ganham proteção PQC
 
+use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use crate::core::crypto::*;
 use hkdf::Hkdf;
 use rand::Rng;
@@ -729,7 +730,8 @@ impl CryptoProvider for VodoCryptoHybrid {
 
     fn megolm_encrypt(&mut self, outbound: &mut MegolmOutbound, plaintext: &[u8]) -> Vec<u8> {
         let msg = outbound.inner.encrypt(plaintext);
-        msg.to_bytes()
+        let body_b64 = B64.encode(msg.to_bytes());
+        format!("{{\"type\":3,\"body\":\"{}\"}}", body_b64).into_bytes()
     }
 
     fn megolm_decrypt(
@@ -737,7 +739,19 @@ impl CryptoProvider for VodoCryptoHybrid {
         inbound: &mut MegolmInbound,
         message: &[u8],
     ) -> Result<Vec<u8>, CryptoError> {
-        let msg = MegolmMessage::from_bytes(message).map_err(|_| CryptoError::Protocol)?;
+        // Desembrulha envelope JSON+B64: {"type":3,"body":"<base64>"}
+        let raw = if message.starts_with(b"{") {
+            let json_val: serde_json::Value =
+                serde_json::from_slice(message).map_err(|_| CryptoError::Protocol)?;
+            let body = json_val
+                .get("body")
+                .and_then(|v| v.as_str())
+                .ok_or(CryptoError::Protocol)?;
+            B64.decode(body).map_err(|_| CryptoError::B64)?
+        } else {
+            message.to_vec()
+        };
+        let msg = MegolmMessage::from_bytes(&raw).map_err(|_| CryptoError::Protocol)?;
         let decrypted = inbound
             .inner
             .decrypt(&msg)

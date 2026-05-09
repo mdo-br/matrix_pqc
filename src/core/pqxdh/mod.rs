@@ -11,6 +11,9 @@
 // - user:     MatrixUser struct e implementação
 // - protocol: Funções de protocolo (init_pqxdh, complete_pqxdh)
 
+// Re-exports de API pública — itens podem não ter consumidores dentro deste crate binário.
+#![allow(unused_imports)]
+
 pub mod message;
 pub mod protocol;
 pub mod user;
@@ -18,4 +21,3 @@ pub mod user;
 pub use message::{MatrixPqxdhInitMessage, MatrixPqxdhOutput, SignedKyberPrekey, SignedX25519Prekey};
 pub use protocol::{complete_pqxdh, init_pqxdh, init_pqxdh_with_rng};
 pub use user::MatrixUser;
-

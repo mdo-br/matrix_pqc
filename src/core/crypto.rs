@@ -41,7 +41,11 @@ impl KemAlgorithm {
             KemAlgorithm::Kyber1024 => "Kyber-1024",
         }
     }
-    
+}
+
+/// Métodos de diagnóstico — API pública sem consumidores internos
+#[allow(dead_code)]
+impl KemAlgorithm {
     /// Nível de segurança quântica em bits
     pub fn security_level(&self) -> u16 {
         match self {

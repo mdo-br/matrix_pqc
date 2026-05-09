@@ -64,7 +64,7 @@ pub struct MatrixRoom {
     /// Apenas controle (acordo + distribuição + rotação) - Megolm messages EXCLUÍDAS
     
     // ========== 1.1) ACORDO (PQXDH/3DH Handshake) ==========
-    // PROTOCOLO COMPLETO (wire protocol - medição REAL via PreKeyMessage)
+    // PROTOCOLO COMPLETO (medição via PreKeyMessage)
     pub bandwidth_agreement: usize,             // Total do protocolo (Bundle + PreKeyMessage)
     pub bandwidth_agreement_classical: usize,   // Componentes clássicos do protocolo
     pub bandwidth_agreement_pqc: usize,         // Componentes PQC do protocolo
@@ -1406,49 +1406,9 @@ impl MatrixRoom {
         // Extrair breakdown REAL dos componentes da mensagem PQC
         let (classical_bytes, pqc_bytes) = Self::extract_message_breakdown(&encrypted_key, &self.crypto_mode);
         
-        // ============================================================================
-        // DETECTAR PreKeyMessage (type 0) = AGREEMENT PHASE
-        // ============================================================================
-        // PreKeyMessage acontece na PRIMEIRA encrypt entre dois peers (3DH/PQXDH handshake)
-        // É a medição REAL do Agreement protocol
-        let mut is_prekey_message = false;
-        
-        if let Ok(json_val) = serde_json::from_slice::<serde_json::Value>(&encrypted_key) {
-            if let Some(msg_type) = json_val.get("type").and_then(|t| t.as_u64()) {
-                if msg_type == 0 {
-                    is_prekey_message = true;
-                    
-                    // PROTOCOLO COMPLETO: Agreement (PreKeyMessage real)
-                    self.bandwidth_agreement += encrypted_key.len();
-                    self.bandwidth_agreement_classical += classical_bytes;
-                    self.bandwidth_agreement_pqc += pqc_bytes;
-                    
-                    // Calcular overhead de serialização
-                    let primitives_total = self.bandwidth_agreement_primitives_identity_keys
-                                         + self.bandwidth_agreement_primitives_otk
-                                         + self.bandwidth_agreement_primitives_kyber1024;
-                    
-                    if encrypted_key.len() > primitives_total {
-                        self.bandwidth_agreement_primitives_prekey_overhead += 
-                            encrypted_key.len() - primitives_total;
-                    }
-                    
-                    vlog!(VerbosityLevel::Normal,
-                          "      [AGREEMENT] PreKeyMessage {} -> {}: {} bytes (classical={}, pqc={}, primitives={})",
-                          sender_id, receiver_id, encrypted_key.len(), classical_bytes, pqc_bytes, primitives_total);
-                }
-            }
-        }
-        
         let elapsed = start_time.elapsed().as_secs_f64() * 1000.0;
-        
-        // PreKeyMessage (type 0) NÃO deve ser contada como distribuição, apenas como Agreement
-        if is_prekey_message {
-            // Já foi contada em bandwidth_agreement acima
-            // Não adicionar em nenhuma outra categoria
-            vlog!(VerbosityLevel::Debug, 
-                  "         └─PreKeyMessage detectada: excluída de outras categorias");
-        } else if self.in_setup_phase {
+
+        if self.in_setup_phase {
             // Durante setup inicial: conta como parte da distribuição de sessão Megolm
             self.bandwidth_session_distribution += encrypted_key.len();
             self.time_initial_distribution_ms += elapsed;
@@ -1467,68 +1427,71 @@ impl MatrixRoom {
             let megolm_key_size = 308;
             self.bandwidth_initial_distribution_primitives_megolm_key += megolm_key_size;
             
-            // Parsear para extrair ratchet key e KEM CT
+            // Extrair ratchet key e KEM CT de acordo com tipo da mensagem
             if let Ok(json_val) = serde_json::from_slice::<serde_json::Value>(&encrypted_key) {
-                if let Some(body) = json_val.get("body").and_then(|b| b.as_str()) {
-                    if let Ok(decoded) = B64.decode(body) {
-                        if decoded.len() >= 19 {
-                            let mut offset = 0;
-                            offset += 1; // version
-                            offset += 1; // type
-                            
-                            if decoded.len() >= offset + 4 {
-                                let classic_len = u32::from_le_bytes([
-                                    decoded[offset], decoded[offset+1],
-                                    decoded[offset+2], decoded[offset+3]
-                                ]) as usize;
-                                offset += 4;
-                                
-                                if decoded.len() >= offset + classic_len + 5 {
-                                    offset += classic_len;
-                                    offset += 4; // msg_index
-                                    
-                                    let pqc_enabled = decoded[offset];
-                                    offset += 1;
-                                    
-                                    if pqc_enabled == 1 && decoded.len() >= offset + 4 {
-                                        let ratchet_key_len = u32::from_le_bytes([
-                                            decoded[offset], decoded[offset+1],
-                                            decoded[offset+2], decoded[offset+3]
-                                        ]) as usize;
-                                        offset += 4;
-                                        
-                                        self.bandwidth_initial_distribution_primitives_ratchet_key += ratchet_key_len;
-                                        
-                                        if decoded.len() >= offset + ratchet_key_len + 4 {
-                                            offset += ratchet_key_len;
-                                            
-                                            let kem_ct_len = u32::from_le_bytes([
+                let msg_type_val = json_val.get("type").and_then(|t| t.as_u64()).unwrap_or(0);
+                if msg_type_val == 2 {
+                    // PQC (type 2): parsear estrutura interna PqcOlmMessage
+                    if let Some(body) = json_val.get("body").and_then(|b| b.as_str()) {
+                        if let Ok(decoded) = B64.decode(body) {
+                            if decoded.len() >= 19 {
+                                let mut offset = 0;
+                                offset += 1; // version
+                                offset += 1; // type
+
+                                if decoded.len() >= offset + 4 {
+                                    let classic_len = u32::from_le_bytes([
+                                        decoded[offset], decoded[offset+1],
+                                        decoded[offset+2], decoded[offset+3]
+                                    ]) as usize;
+                                    offset += 4;
+
+                                    if decoded.len() >= offset + classic_len + 5 {
+                                        offset += classic_len;
+                                        offset += 4; // msg_index
+
+                                        let pqc_enabled = decoded[offset];
+                                        offset += 1;
+
+                                        if pqc_enabled == 1 && decoded.len() >= offset + 4 {
+                                            let ratchet_key_len = u32::from_le_bytes([
                                                 decoded[offset], decoded[offset+1],
                                                 decoded[offset+2], decoded[offset+3]
                                             ]) as usize;
-                                            
-                                            self.bandwidth_initial_distribution_primitives_kem_ct += kem_ct_len;
-                                            
-                                            let primitives_sum = megolm_key_size + ratchet_key_len + kem_ct_len;
-                                            if encrypted_key.len() > primitives_sum {
-                                                self.bandwidth_initial_distribution_primitives_olm_overhead +=
-                                                    encrypted_key.len() - primitives_sum;
+                                            offset += 4;
+
+                                            self.bandwidth_initial_distribution_primitives_ratchet_key += ratchet_key_len;
+
+                                            if decoded.len() >= offset + ratchet_key_len + 4 {
+                                                offset += ratchet_key_len;
+
+                                                let kem_ct_len = u32::from_le_bytes([
+                                                    decoded[offset], decoded[offset+1],
+                                                    decoded[offset+2], decoded[offset+3]
+                                                ]) as usize;
+
+                                                self.bandwidth_initial_distribution_primitives_kem_ct += kem_ct_len;
+
+                                                let primitives_sum = megolm_key_size + ratchet_key_len + kem_ct_len;
+                                                if encrypted_key.len() > primitives_sum {
+                                                    self.bandwidth_initial_distribution_primitives_olm_overhead +=
+                                                        encrypted_key.len() - primitives_sum;
+                                                }
                                             }
-                                        }
-                                    } else if pqc_enabled == 0 {
-                                        // Classical: ratchet key 32B
-                                        let classical_ratchet_size = 32;
-                                        self.bandwidth_initial_distribution_primitives_ratchet_key += classical_ratchet_size;
-                                        
-                                        let primitives_sum = megolm_key_size + classical_ratchet_size;
-                                        if encrypted_key.len() > primitives_sum {
-                                            self.bandwidth_initial_distribution_primitives_olm_overhead +=
-                                                encrypted_key.len() - primitives_sum;
                                         }
                                     }
                                 }
                             }
                         }
+                    }
+                } else {
+                    // Classical (type 0 ou 1): ratchet key 32B, sem KEM CT
+                    let classical_ratchet_size = 32;
+                    self.bandwidth_initial_distribution_primitives_ratchet_key += classical_ratchet_size;
+                    let primitives_sum = megolm_key_size + classical_ratchet_size;
+                    if encrypted_key.len() > primitives_sum {
+                        self.bandwidth_initial_distribution_primitives_olm_overhead +=
+                            encrypted_key.len() - primitives_sum;
                     }
                 }
             }
@@ -1554,89 +1517,81 @@ impl MatrixRoom {
             let megolm_key_size = 308;
             self.bandwidth_rotation_primitives_megolm_key += megolm_key_size;
             
-            // Para extrair ratchet key e KEM CT, precisamos parsear a mensagem
+            // Extrair ratchet key e KEM CT de acordo com tipo da mensagem
             if let Ok(json_val) = serde_json::from_slice::<serde_json::Value>(&encrypted_key) {
-                if let Some(body) = json_val.get("body").and_then(|b| b.as_str()) {
-                    if let Ok(decoded) = B64.decode(body) {
-                        // Parsear estrutura binária
-                        // Formato: [1B version][1B type][4B classic_len][classic_bytes][4B msg_index][1B pqc_enabled]
-                        //          [4B ratchet_key_len][ratchet_key][4B kem_ct_len][kem_ct]
-                        
-                        if decoded.len() >= 19 {  // Mínimo para ter headers
-                            let mut offset = 0;
-                            offset += 1; // version
-                            offset += 1; // type
-                            
-                            // Classic length
-                            if decoded.len() >= offset + 4 {
-                                let classic_len = u32::from_le_bytes([
-                                    decoded[offset], decoded[offset+1], 
-                                    decoded[offset+2], decoded[offset+3]
-                                ]) as usize;
-                                offset += 4;
-                                
-                                // Skip classic payload (Megolm key)
-                                if decoded.len() >= offset + classic_len + 5 {
-                                    offset += classic_len;
-                                    offset += 4; // msg_index
-                                    
-                                    let pqc_enabled = decoded[offset];
-                                    offset += 1;
-                                    
-                                    if pqc_enabled == 1 && decoded.len() >= offset + 4 {
-                                        // Ratchet key length
-                                        let ratchet_key_len = u32::from_le_bytes([
-                                            decoded[offset], decoded[offset+1],
-                                            decoded[offset+2], decoded[offset+3]
-                                        ]) as usize;
-                                        offset += 4;
-                                        
-                                        self.bandwidth_rotation_primitives_ratchet_key += ratchet_key_len;
-                                        
-                                        // KEM ciphertext length
-                                        if decoded.len() >= offset + ratchet_key_len + 4 {
-                                            offset += ratchet_key_len;
-                                            
-                                            let kem_ct_len = u32::from_le_bytes([
+                let msg_type_val = json_val.get("type").and_then(|t| t.as_u64()).unwrap_or(0);
+                if msg_type_val == 2 {
+                    // PQC (type 2): parsear estrutura interna PqcOlmMessage
+                    if let Some(body) = json_val.get("body").and_then(|b| b.as_str()) {
+                        if let Ok(decoded) = B64.decode(body) {
+                            if decoded.len() >= 19 {
+                                let mut offset = 0;
+                                offset += 1; // version
+                                offset += 1; // type
+
+                                if decoded.len() >= offset + 4 {
+                                    let classic_len = u32::from_le_bytes([
+                                        decoded[offset], decoded[offset+1],
+                                        decoded[offset+2], decoded[offset+3]
+                                    ]) as usize;
+                                    offset += 4;
+
+                                    if decoded.len() >= offset + classic_len + 5 {
+                                        offset += classic_len;
+                                        offset += 4; // msg_index
+
+                                        let pqc_enabled = decoded[offset];
+                                        offset += 1;
+
+                                        if pqc_enabled == 1 && decoded.len() >= offset + 4 {
+                                            let ratchet_key_len = u32::from_le_bytes([
                                                 decoded[offset], decoded[offset+1],
                                                 decoded[offset+2], decoded[offset+3]
                                             ]) as usize;
-                                            
-                                            self.bandwidth_rotation_primitives_kem_ct += kem_ct_len;
-                                            
-                                            // Overhead Olm = total - (megolm + ratchet + kem)
-                                            let primitives_sum = megolm_key_size + ratchet_key_len + kem_ct_len;
-                                            if encrypted_key.len() > primitives_sum {
-                                                self.bandwidth_rotation_primitives_olm_overhead += 
-                                                    encrypted_key.len() - primitives_sum;
+                                            offset += 4;
+
+                                            self.bandwidth_rotation_primitives_ratchet_key += ratchet_key_len;
+
+                                            if decoded.len() >= offset + ratchet_key_len + 4 {
+                                                offset += ratchet_key_len;
+
+                                                let kem_ct_len = u32::from_le_bytes([
+                                                    decoded[offset], decoded[offset+1],
+                                                    decoded[offset+2], decoded[offset+3]
+                                                ]) as usize;
+
+                                                self.bandwidth_rotation_primitives_kem_ct += kem_ct_len;
+
+                                                let primitives_sum = megolm_key_size + ratchet_key_len + kem_ct_len;
+                                                if encrypted_key.len() > primitives_sum {
+                                                    self.bandwidth_rotation_primitives_olm_overhead +=
+                                                        encrypted_key.len() - primitives_sum;
+                                                }
+
+                                                vlog!(VerbosityLevel::Debug,
+                                                      "         └─[PRIMITIVES] Megolm={}B, Ratchet={}B, KEM={}B, Overhead={}B",
+                                                      megolm_key_size, ratchet_key_len, kem_ct_len,
+                                                      encrypted_key.len() - primitives_sum);
                                             }
-                                            
-                                            vlog!(VerbosityLevel::Debug, 
-                                                  "         └─[PRIMITIVES] Megolm={}B, Ratchet={}B, KEM={}B, Overhead={}B",
-                                                  megolm_key_size, ratchet_key_len, kem_ct_len,
-                                                  encrypted_key.len() - primitives_sum);
                                         }
-                                    } else if pqc_enabled == 0 {
-                                        // Classical mode: apenas ratchet key (32B)
-                                        let classical_ratchet_size = 32;
-                                        self.bandwidth_rotation_primitives_ratchet_key += classical_ratchet_size;
-                                        
-                                        // Overhead Olm
-                                        let primitives_sum = megolm_key_size + classical_ratchet_size;
-                                        if encrypted_key.len() > primitives_sum {
-                                            self.bandwidth_rotation_primitives_olm_overhead += 
-                                                encrypted_key.len() - primitives_sum;
-                                        }
-                                        
-                                        vlog!(VerbosityLevel::Debug,
-                                              "         └─[PRIMITIVES CLASSICAL] Megolm={}B, Ratchet={}B, Overhead={}B",
-                                              megolm_key_size, classical_ratchet_size,
-                                              encrypted_key.len() - primitives_sum);
                                     }
                                 }
                             }
                         }
                     }
+                } else {
+                    // Classical (type 0 ou 1): ratchet key 32B, sem KEM CT
+                    let classical_ratchet_size = 32;
+                    self.bandwidth_rotation_primitives_ratchet_key += classical_ratchet_size;
+                    let primitives_sum = megolm_key_size + classical_ratchet_size;
+                    if encrypted_key.len() > primitives_sum {
+                        self.bandwidth_rotation_primitives_olm_overhead +=
+                            encrypted_key.len() - primitives_sum;
+                    }
+                    vlog!(VerbosityLevel::Debug,
+                          "         └─[PRIMITIVES CLASSICAL] Megolm={}B, Ratchet={}B, Overhead={}B",
+                          megolm_key_size, classical_ratchet_size,
+                          encrypted_key.len().saturating_sub(primitives_sum));
                 }
             }
             

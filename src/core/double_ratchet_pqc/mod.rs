@@ -15,6 +15,9 @@
 // - state:   PqcRatchetState + PqcDoubleRatchetState + RatchetStats
 // - session: HybridOlmSession + SessionStats
 
+// Re-exports de API pública — itens podem não ter consumidores dentro deste crate binário.
+#![allow(unused_imports)]
+
 pub mod kem;
 pub mod keys;
 pub mod message;

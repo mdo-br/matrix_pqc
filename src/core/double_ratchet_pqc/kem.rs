@@ -193,6 +193,7 @@ pub enum KemPublicKey {
     Kyber1024(kyber1024::PublicKey),
 }
 
+#[allow(dead_code)]
 impl KemPublicKey {
     /// Tamanho em bytes da chave pública
     pub fn size_bytes(&self) -> usize {
