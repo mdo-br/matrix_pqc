@@ -771,11 +771,14 @@ def generate_figure_overhead_bw_vs_time(df, output_dir):
                        edgecolor='black', linewidth=1.5)
         ax.set_xlabel(xlabel, fontsize=14, fontweight='bold')
         ax.set_title(title, fontsize=15, fontweight='bold', pad=15)
-        ax.set_xlim(0, 600)
+        max_val = max((v for v in overheads if v == v), default=100)
+        xlim_max = max(max_val * 1.20, 100)
+        ax.set_xlim(0, xlim_max)
         ax.grid(axis='x', alpha=0.3, linestyle='--')
         ax.tick_params(axis='x', labelsize=13)
+        label_offset = xlim_max * 0.025
         for bar, val in zip(bars, overheads):
-            ax.text(val + 15, bar.get_y() + bar.get_height() / 2,
+            ax.text(val + label_offset, bar.get_y() + bar.get_height() / 2,
                     f'{val:.0f}%', va='center', ha='left', fontsize=13, fontweight='bold')
 
     ax1.set_yticks(y_pos)
