@@ -124,7 +124,17 @@ impl CryptoProvider for VodoCrypto {
         _their_curve25519: &str,
         prekey_message: &[u8],
     ) -> Result<(OlmSessionHandle, Vec<u8>), CryptoError> {
-        let prekey = PreKeyMessage::from_bytes(prekey_message).map_err(|_| CryptoError::Protocol)?;
+        // Desembrulhar formato Matrix: {"type":N,"body":"<base64>"}
+        let raw: Vec<u8> = if let Ok(json_val) = serde_json::from_slice::<serde_json::Value>(prekey_message) {
+            if let Some(body_b64) = json_val.get("body").and_then(|b| b.as_str()) {
+                B64.decode(body_b64).map_err(|_| CryptoError::B64)?
+            } else {
+                prekey_message.to_vec()
+            }
+        } else {
+            prekey_message.to_vec()
+        };
+        let prekey = PreKeyMessage::from_bytes(&raw).map_err(|_| CryptoError::Protocol)?;
         let their_identity_key = prekey.identity_key();
         let creation_result = self.account.create_inbound_session(their_identity_key, &prekey)
             .map_err(|_| CryptoError::Protocol)?;
