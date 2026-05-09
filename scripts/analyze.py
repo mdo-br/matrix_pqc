@@ -138,7 +138,8 @@ def paired_analysis_by_room_type(df, metric, metric_name):
         print(f"AVISO: Coluna 'room_type' não encontrada")
         return pd.DataFrame()
 
-    for room_type in sorted(df['room_type'].unique()):
+    _order = ['DM', 'SmallGroup', 'MediumGroup', 'LargeChannel']
+    for room_type in [r for r in _order if r in df['room_type'].unique()]:
         df_room = df[df['room_type'] == room_type].copy()
         classical = df_room[df_room['repeat_id'] == 0][metric].values
         hybrid = df_room[df_room['repeat_id'] == 1][metric].values
@@ -736,7 +737,8 @@ def generate_figure_overhead_bw_vs_time(df, output_dir):
     ]
 
     # --- Tempo (agregação balanceada: sum-of-medians por tipo de sala) ---
-    room_types = sorted(df['room_type'].unique()) if 'room_type' in df.columns else []
+    _rt_order = ['DM', 'SmallGroup', 'MediumGroup', 'LargeChannel']
+    room_types = [r for r in _rt_order if r in df['room_type'].unique()] if 'room_type' in df.columns else []
 
     def weighted_time_overhead(metric):
         total_c, total_h = 0.0, 0.0
