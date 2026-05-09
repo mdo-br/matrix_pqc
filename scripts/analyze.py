@@ -43,8 +43,6 @@ import pandas as pd
 import seaborn as sns
 from scipy import stats
 
-warnings.filterwarnings('ignore', category=RuntimeWarning)
-
 # Modo verboso global (definido em main() via argparse)
 VERBOSE = False
 
@@ -179,13 +177,22 @@ def paired_analysis_by_room_type(df, metric, metric_name):
             p_shapiro = 0
         is_normal = p_shapiro > 0.05 if p_shapiro is not None else False
 
-        if is_normal and n_clean >= 5:
+        if np.ptp(diffs_clean) == 0:
+            # Dados determinísticos: variância zero, nenhum teste inferencial aplicável.
+            # Diferença constante não-nula → p=0 (distinção perfeita). Diferença zero → p=1.
+            p_value = 0.0 if diffs_clean[0] != 0 else 1.0
+            test_name = "deterministic"
+            effect_size = 0.0
+            effect_label = "N/A"
+        elif is_normal and n_clean >= 5:
             _, p_value = stats.ttest_rel(hybrid_clean, classical_clean)
             test_name = "paired_t"
             effect_size = cohens_d(classical_clean, hybrid_clean)
             effect_label = "Cohen's d"
         else:
-            _, p_value = stats.wilcoxon(hybrid_clean, classical_clean, alternative='two-sided')
+            # zero_method='zsplit' distribui zeros igualmente sem gerar RuntimeWarning
+            _, p_value = stats.wilcoxon(hybrid_clean, classical_clean,
+                                        alternative='two-sided', zero_method='zsplit')
             test_name = "Wilcoxon"
             effect_size = cliffs_delta(classical_clean, hybrid_clean)
             effect_label = "Cliff's delta"
