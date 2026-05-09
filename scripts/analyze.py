@@ -534,35 +534,65 @@ def generate_summary(results_bw, results_comp, results_rot,
     print("RESUMO — VERIFICAÇÃO DAS REIVINDICAÇÕES DO ARTIGO")
     print("=" * 80)
 
+    def _fmt_bw(v):
+        if v >= 1024 ** 2: return f"{v / 1024 ** 2:.2f} MB"
+        elif v >= 1024:    return f"{v / 1024:.1f} kB"
+        else:              return f"{v:.0f} B"
+
+    _n_label   = {'DM': 2, 'SmallGroup': 7, 'MediumGroup': 25, 'LargeChannel': 150}
+    _room_order = ['DM', 'SmallGroup', 'MediumGroup', 'LargeChannel']
+
     # === REIVINDICAÇÃO 1: Overhead de Largura de Banda ===
     print("\n=== REIVINDICAÇÃO 1: Overhead de Largura de Banda ===")
     for phase in ['Agreement', 'Initial_Distribution', 'Rotation']:
-        if phase in results_bw:
-            df_ph = results_bw[phase]
-            if isinstance(df_ph, pd.DataFrame) and len(df_ph) > 0:
-                c_agg = df_ph['classical_median'].median()
-                h_agg = df_ph['hybrid_median'].median()
-                oh = ((h_agg - c_agg) / c_agg * 100) if c_agg > 0 else 0
-                n_sig = sum(df_ph['significant']) if 'significant' in df_ph.columns else '?'
-                sig_label = "***" if (isinstance(n_sig, int) and n_sig > 0) else "n.s."
-                print(f"  {phase:25s}: {oh:+8.2f}%  "
-                      f"(Classical: {c_agg:.0f}B → Hybrid: {h_agg:.0f}B)  [{sig_label}]")
+        if phase not in results_bw:
+            continue
+        df_ph = results_bw[phase]
+        if not isinstance(df_ph, pd.DataFrame) or len(df_ph) == 0:
+            continue
+        n_sig = sum(df_ph['significant']) if 'significant' in df_ph.columns else '?'
+        sig_label = "***" if (isinstance(n_sig, int) and n_sig > 0) else "n.s."
+        print(f"  {phase} [{sig_label}]:")
+        for rt in _room_order:
+            row_data = df_ph[df_ph['room_type'] == rt]
+            if len(row_data) == 0:
+                continue
+            row = row_data.iloc[0]
+            n = _n_label.get(rt, '?')
+            c, h, oh = row['classical_median'], row['hybrid_median'], row['overhead_pct']
+            print(f"    {rt:15s} (N={n:>3}): {_fmt_bw(c):>10s} → {_fmt_bw(h):>10s}  ({oh:+.1f}%)")
 
     # === REIVINDICAÇÃO 2: Overhead de Tempo de Processamento ===
     print("\n=== REIVINDICAÇÃO 2: Overhead de Tempo de Processamento ===")
     if results_time:
         for phase in ['Setup', 'Rotation']:
-            if phase in results_time:
-                df_ph = results_time[phase]
-                if isinstance(df_ph, pd.DataFrame) and len(df_ph) > 0:
-                    overheads = []
-                    for _, row in df_ph.iterrows():
-                        if row['classical_median'] > 0:
-                            overheads.append(row['overhead_pct'])
-                    if overheads:
-                        oh_min, oh_max = min(overheads), max(overheads)
-                        sig_label = "***" if ('significant' in df_ph.columns and df_ph['significant'].any()) else "n.s."
-                        print(f"  {phase:25s}: {oh_min:+.1f}% a {oh_max:+.1f}% (por sala)  [{sig_label}]")
+            if phase not in results_time:
+                continue
+            df_ph = results_time[phase]
+            if not isinstance(df_ph, pd.DataFrame) or len(df_ph) == 0:
+                continue
+            sig_label = "***" if ('significant' in df_ph.columns and df_ph['significant'].any()) else "n.s."
+            print(f"  {phase} [{sig_label}]:")
+            for rt in _room_order:
+                row_data = df_ph[df_ph['room_type'] == rt]
+                if len(row_data) == 0:
+                    continue
+                row = row_data.iloc[0]
+                n = _n_label.get(rt, '?')
+                c_ms, h_ms, oh = row['classical_median'], row['hybrid_median'], row['overhead_pct']
+                print(f"    {rt:15s} (N={n:>3}): {c_ms:8.2f} ms → {h_ms:8.2f} ms  ({oh:+.0f}%)")
+        if df is not None and 'encrypt_steady_state_ms' in df.columns:
+            print(f"  Megolm steady-state (plano de dados, sem overhead PQC) [n.s.]:")
+            for rt in _room_order:
+                dc = df[(df['room_type'] == rt) & (df['crypto_mode'] == 'Classical')]['encrypt_steady_state_ms']
+                dh = df[(df['room_type'] == rt) & (df['crypto_mode'] == 'Hybrid')]['encrypt_steady_state_ms']
+                if len(dc) == 0 or len(dh) == 0:
+                    continue
+                c_ms, h_ms = dc.median(), dh.median()
+                oh = ((h_ms - c_ms) / c_ms * 100) if c_ms > 0 else 0
+                n = _n_label.get(rt, '?')
+                label = " [≈0%]" if abs(oh) < 5 else f"  ({oh:+.0f}%)"
+                print(f"    {rt:15s} (N={n:>3}): {c_ms:8.3f} ms → {h_ms:8.3f} ms{label}")
     else:
         print("  (dados de tempo não disponíveis)")
 
