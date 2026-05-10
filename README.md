@@ -604,6 +604,8 @@ Comparar as métricas de `bandwidth_rotation` entre políticas para SmallGroup:
 
 A redução deve ser aproximadamente linear com o intervalo de rotação (10× mais relaxado → 10× menos banda).
 
+> **Nota sobre o artefato atual**: Os valores reportados (e exibidos na figura) correspondem ao overhead de rotação **Hybrid − Classical** (`bandwidth_rotation`). No conjunto canônico do manuscrito, esse overhead para SmallGroup é ≈293,9 kB (Paranoid), ≈147,0 kB (PQ3), ≈68,6 kB (Balanced) e ≈29,4 kB (Relaxed). No artefato atual, após a correção na medição de banda (commit `5b265f4`), os valores passaram para ≈289,7 kB, ≈144,8 kB, ≈67,6 kB e ≈29,0 kB, respectivamente. A diferença é pequena e não altera a interpretação da Reivindicação 5: ao ampliar a janela de segurança de 25 para 250 mensagens, o custo acumulado de rotação cai aproximadamente 10×.
+
 ### Variações aceitáveis
 
 Valores absolutos de bandwidth devem convergir (±10%) para os reportados, pois o tamanho das primitivas é fixo. A proporcionalidade entre políticas deve ser precisa (razão Paranoid/Relaxed ≈ 10×).
