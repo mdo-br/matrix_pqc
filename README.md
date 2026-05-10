@@ -38,7 +38,7 @@ Este artefato foi preparado para concorrer aos seguintes selos de avaliação do
 - **Sustentáveis (SeloS)**: O código é modular, bem estruturado (traits, providers, módulos separados) e documentado para facilitar extensão e reutilização pela comunidade.
 - **Reprodutíveis (SeloR)**: As instruções permitem reproduzir os resultados quantitativos do artigo, com análise estatística pareada automatizada (Wilcoxon signed-rank, intervalos de confiança a 95%, correção de Holm–Bonferroni).
 
-> **Nota de reprodutibilidade**: Os dados experimentais foram gerados com o commit [`d11365a`](https://github.com/mdo-br/matrix_pqc/commit/d11365a9849a98c37756c1d5382201336e818cdf) (*Initial commit*). O arquivo `results/user_profile_runs_20260201_124053_all_policies.csv` incluso no repositório é o conjunto de dados canônico gerado naquele commit. Commits posteriores corrigem advertências do compilador e a verbosidade do script de análise sem alterar o código de medição nem os dados coletados.
+> **Nota de reprodutibilidade**: Os dados experimentais foram gerados com o commit [`d11365a`](https://github.com/mdo-br/matrix_pqc/commit/d11365a9849a98c37756c1d5382201336e818cdf) (*Initial commit*). O arquivo `results/user_profile_runs_20260201_124053_all_policies.csv` incluso no repositório é o conjunto de dados canônico associado ao manuscrito. O CSV canônico reproduz os valores reportados no manuscrito. Já novas execuções no estado atual do repositório podem produzir valores percentuais diferentes, pois commits posteriores incorporam correções solicitadas durante a avaliação do artefato, incluindo melhorias de documentação, redução de warnings, refatoração estrutural, tratamento estatístico, exibição dos resultados e ajustes no formato de mensagens/medição. Essas novas execuções, entretanto, preservam as tendências qualitativas principais.
 
 ---
 
@@ -49,39 +49,56 @@ Este artefato foi preparado para concorrer aos seguintes selos de avaliação do
 ```
 vodozemac-wrapper-pqc/
 ├── src/
-│   ├── core/                          # Primitivas criptográficas fundamentais
-│   │   ├── crypto.rs                  # Traits e definições de algoritmos (KEM, DH, Signature)
-│   │   ├── pqxdh.rs                   # Protocolo PQXDH (3DH estendido com Kyber-1024)
-│   │   ├── double_ratchet_pqc.rs      # Double Ratchet híbrido (X25519 + Kyber-768)
+│   ├── core/                              # Primitivas criptográficas fundamentais
+│   │   ├── crypto.rs                      # Traits e definições de algoritmos (KEM, DH, Signature)
+│   │   ├── pqxdh/                         # Protocolo PQXDH (3DH estendido com Kyber-1024)
+│   │   │   ├── message.rs                 # Tipos de dados: chaves, mensagens e wrappers de zeroização
+│   │   │   ├── protocol.rs                # init_pqxdh, complete_pqxdh e derivação de chaves
+│   │   │   └── user.rs                    # MatrixUser: identidades e chaves de longo prazo
+│   │   ├── double_ratchet_pqc/            # Double Ratchet híbrido (X25519 + Kyber-768)
+│   │   │   ├── kem.rs                     # Wrappers de zeroização e operações KEM (Kyber-512/768/1024)
+│   │   │   ├── keys.rs                    # Pares de chaves híbridos (X25519 + CRYSTALS-Kyber)
+│   │   │   ├── message.rs                 # Tipo PqcOlmMessage com serialização Matrix-compatível
+│   │   │   ├── session.rs                 # HybridOlmSession: orquestrador vodozemac + Double Ratchet PQC
+│   │   │   ├── state.rs                   # Máquina de estados do Double Ratchet híbrido
+│   │   │   └── tests.rs                   # Testes isolados do Double Ratchet PQC
 │   │   └── providers/
-│   │       ├── classical.rs           # Provider clássico (vodozemac pura)
-│   │       └── hybrid.rs              # Provider híbrido (vodozemac + CRYSTALS-Kyber)
+│   │       ├── classical.rs               # Provider clássico (vodozemac pura)
+│   │       └── hybrid.rs                  # Provider híbrido (vodozemac + CRYSTALS-Kyber)
 │   │
 │   ├── protocols/
-│   │   └── room.rs                    # Salas Matrix (Olm + Megolm) com políticas de rotação
+│   │   └── room/                          # Salas Matrix (Olm + Megolm) com políticas de rotação
+│   │       ├── crypto_backend.rs          # Trait e wrapper do provedor criptográfico unificado
+│   │       ├── crypto_impl.rs             # Operações Olm/Megolm: criação e distribuição de sessões
+│   │       ├── member.rs                  # Tipos de membros e sessões da sala
+│   │       ├── messaging.rs               # Envio e recebimento de mensagens Megolm
+│   │       ├── rotation.rs                # RotationPolicy e RotationConfig (4 políticas de rotação)
+│   │       ├── rotation_impl.rs           # Execução das rotações de chave Megolm
+│   │       └── session_mgmt.rs            # Gerenciamento de sessões Olm entre pares
 │   │
-│   ├── demos/
-│   │   └── user_profile_benchmark.rs  # Benchmark principal pareado (4 tipos de sala)
-│   │
-│   ├── tools/
-│   │   └── workload.rs               # Gerador de carga de trabalho (distribuições acadêmicas)
+│   ├── benchmark/                         # Benchmark e gerador de carga de trabalho
+│   │   ├── metrics.rs                     # Estruturas de métricas e serialização CSV
+│   │   ├── runner.rs                      # Benchmark principal pareado (4 tipos de sala)
+│   │   ├── workload.rs                    # Gerador de carga de trabalho (distribuições acadêmicas)
+│   │   └── workload_tests.rs              # Testes do gerador de carga de trabalho
 │   │
 │   ├── utils/
-│   │   └── logging.rs                # Sistema de verbosidade (níveis 0–4)
+│   │   ├── logging.rs                     # Sistema de verbosidade (níveis 0–4)
+│   │   └── serde_helpers.rs               # Helpers Base64 para serialização de material criptográfico
 │   │
-│   ├── lib.rs                         # Biblioteca principal (re-exports)
-│   └── main.rs                        # Interface CLI (clap)
+│   ├── lib.rs                             # Biblioteca principal (re-exports)
+│   └── main.rs                            # Interface CLI (clap)
 │
 ├── scripts/
-│   ├── analyze.py                     # Análise estatística pareada e geração de artefatos
-│   └── requirements.txt               # Dependências Python
+│   ├── analyze.py                         # Análise estatística pareada e geração de artefatos
+│   └── requirements.txt                   # Dependências Python
 │
-├── results/                           # Diretório de saída dos experimentos (CSVs)
-├── tables_and_plots/                  # Gerado pelo script de análise (não versionado)
-├── assets/                            # Imagens do README (figuras da arquitetura)
-├── Cargo.toml                         # Configuração do pacote Rust e dependências
-├── LICENSE                            # Licença AGPLv3
-└── README.md                          # Este arquivo
+├── results/                               # Diretório de saída dos experimentos (CSVs)
+├── tables_and_plots/                      # Gerado pelo script de análise (não versionado)
+├── assets/                                # Imagens do README (figuras da arquitetura)
+├── Cargo.toml                             # Configuração do pacote Rust e dependências
+├── LICENSE                                # Licença AGPLv3
+└── README.md                              # Este arquivo
 ```
 
 ## Design Experimental
@@ -158,22 +175,22 @@ Define as abstrações comuns a ambos os modos (Classical e Hybrid):
 - **`CryptoProvider`**: trait que ambos os providers (`VodoCrypto`, `VodoCryptoHybrid`) implementam, garantindo que o código de benchmark e de sala seja idêntico para os dois modos — a única diferença está na implementação concreta do provider.
 - Tipos de transferência de dados: `IdentityKeysExport`, `OneTimeKeyExport`, `OlmSessionHandle`, `MegolmOutbound`, `MegolmInbound`, `KeyAgreementStats` — usados para coletar as métricas de largura de banda gravadas no CSV.
 
-### `src/core/pqxdh.rs` — Fluxo ①: Estabelecimento de canal Olm (PQXDH)
+### `src/core/pqxdh/` — Fluxo ①: Estabelecimento de canal Olm (PQXDH)
 
-Implementa o protocolo PQXDH que substitui o 3DH clássico no handshake inicial entre dois dispositivos:
+Implementa o protocolo PQXDH que substitui o 3DH clássico no handshake inicial entre dois dispositivos. Organizado em três submódulos: `user.rs` (identidades e chaves), `protocol.rs` (lógica do handshake), `message.rs` (estruturas de serialização).
 
-- **`MatrixUser`**: estrutura com chaves de identidade de longo prazo (Ed25519 para assinatura + Curve25519 para DH) e chaves Kyber-1024 para KEM.
-- **`init_pqxdh`**: lado iniciador — executa 3–4 acordos X25519 DH *e* um encapsulamento **Kyber-1024**, combinando os segredos via HKDF-SHA-256 para derivar a chave-raiz da sessão Olm.
-- **`complete_pqxdh`**: lado respondedor — desencapsula o ciphertext Kyber recebido, recalcula os mesmos DH e deriva a mesma chave-raiz.
+- **`MatrixUser`** (`user.rs`): estrutura com chaves de identidade de longo prazo (Ed25519 para assinatura + Curve25519 para DH) e chaves Kyber-1024 para KEM.
+- **`init_pqxdh`** (`protocol.rs`): lado iniciador — executa 3–4 acordos X25519 DH *e* um encapsulamento **Kyber-1024**, combinando os segredos via HKDF-SHA-256 para derivar a chave-raiz da sessão Olm.
+- **`complete_pqxdh`** (`protocol.rs`): lado respondedor — desencapsula o ciphertext Kyber recebido, recalcula os mesmos DH e deriva a mesma chave-raiz.
 - Segurança híbrida: se o Kyber for quebrado, o X25519 ainda protege; se o X25519 for quebrado por computador quântico, o Kyber protege. Ambos precisam ser comprometidos simultaneamente.
 
-### `src/core/double_ratchet_pqc.rs` — Fluxo ②: Distribuição Megolm (Double Ratchet PQC)
+### `src/core/double_ratchet_pqc/` — Fluxo ②: Distribuição Megolm (Double Ratchet PQC)
 
-Estende o Double Ratchet da vodozemac com material pós-quântico na atualização da chave-raiz:
+Estende o Double Ratchet da vodozemac com material pós-quântico na atualização da chave-raiz. Organizado em submódulos: `state.rs` (estado do ratchet), `keys.rs` (material de chave), `session.rs` (sessão), `message.rs` (formato de mensagem), `kem.rs` (operações KEM), `tests.rs` (testes isolados).
 
 - **Avanço simétrico** (mensagens consecutivas na mesma direção): apenas HMAC-SHA-256 sobre a *chain key* — **zero overhead PQC por mensagem**.
 - **Avanço assimétrico** (mudança de direção / rotação Megolm): gera novas chaves X25519 + **Kyber-768**, executa DH + KEM, e combina os dois segredos via HKDF-SHA-256 para atualizar a *root key*. O Kyber-768 foi escolhido aqui por ser mais leve que o Kyber-1024 do handshake, amortizando o custo em operações recorrentes.
-- **`ZeroizingKyber*Key`**: wrappers com `Drop` trait que zeroizam as chaves privadas Kyber na memória ao serem descartadas (pqcrypto-kyber não implementa `Zeroize` nativamente).
+- **`ZeroizingKyber*Key`** (`keys.rs`): wrappers com `Drop` trait que zeroizam as chaves privadas Kyber na memória ao serem descartadas (pqcrypto-kyber não implementa `Zeroize` nativamente).
 - Formato de mensagem compatível com Matrix: prefixo JSON `{"type":2,...}` identifica mensagens PQC; fallback automático para Base64 clássico.
 
 ### `src/core/providers/classical.rs` — Provider clássico (baseline)
@@ -193,11 +210,11 @@ Estende o Double Ratchet da vodozemac com material pós-quântico na atualizaç�
 - **`derive_hybrid_root_key`**: função HKDF-SHA-256 que concatena o segredo X25519 e o segredo Kyber e extrai a chave-raiz de 32 bytes — implementa o princípio `Security = max(classical, pqc)`.
 - O tráfego de dados Megolm (AES-256-CBC) passa inalterado pelo `GroupSession` da vodozemac — sem modificação no fluxo ③.
 
-### `src/protocols/room.rs` — Orquestração: sala Matrix com políticas de rotação
+### `src/protocols/room/` — Orquestração: sala Matrix com políticas de rotação
 
-Coordena os três fluxos dentro de uma sala simulada:
+Coordena os três fluxos dentro de uma sala simulada. Organizado em submódulos por responsabilidade: `crypto_backend.rs` (trait do backend criptográfico), `crypto_impl.rs` (implementação das operações Olm/Megolm), `session_mgmt.rs` (gerenciamento de sessões), `messaging.rs` (envio e recebimento de mensagens), `rotation.rs` + `rotation_impl.rs` (lógica de rotação de chaves), `member.rs` (estrutura de membro da sala).
 
-- **`RotationPolicy`** e **`RotationConfig`**: enum com as 4 políticas (`Paranoid`/25, `PQ3`/50, `Balanced`/100, `Relaxed`/250 mensagens) e sua conversão para parâmetros concretos de rotação.
+- **`RotationPolicy`** e **`RotationConfig`** (`rotation.rs`): enum com as 4 políticas (`Paranoid`/25, `PQ3`/50, `Balanced`/100, `Relaxed`/250 mensagens) e sua conversão para parâmetros concretos de rotação.
 - A sala mantém sessões Olm individuais para cada par de participantes (usando o provider configurado — Classical ou Hybrid), distribui as chaves Megolm via esses canais (fluxo ①+②), e cifra as mensagens de sala com Megolm/AES-256-CBC (fluxo ③).
 - Instrumentação: cada operação registra bytes transmitidos e tempo decorrido nas structs de métricas (`KeyAgreementStats`) que são gravadas no CSV — separando explicitamente overhead de protocolo PQC vs. clássico.
 
@@ -214,7 +231,7 @@ Coordena os três fluxos dentro de uma sala simulada:
 | **Rust (rustc)**    | 1.70+         | Compilação do wrapper criptográfico            |
 | **Cargo**           | 1.70+         | Gerenciador de dependências Rust               |
 | **Python**          | 3.8+          | Análise estatística dos resultados             |
-| **pip**             | —             | Instalação de pacotes Python                   |
+| **pip** ou **uv**   | —             | Instalação de pacotes Python                   |
 | **Git**             | 2.0+          | Clonagem do repositório                        |
 
 > **Nota (VMs mínimas)**: Em instalações mínimas do Ubuntu/Debian, os pacotes `build-essential` e `pkg-config` podem não estar presentes. Sem eles, a compilação Rust falhará com `error: linker 'cc' not found`. Veja o Passo 1 da [Instalação](#instalação).
@@ -240,7 +257,7 @@ As principais *crates* são baixadas e compiladas automaticamente:
 
 ## Dependências Python
 
-Instaláveis via `pip`:
+Instaláveis via `pip` ou `uv`:
 
 | Pacote       | Versão  | Finalidade                              |
 |--------------|---------|------------------------------------------|
@@ -311,18 +328,26 @@ A primeira compilação pode levar **3–5 minutos** (download e compilação de
 
 ## Passo 5: Instalar dependências Python
 
-**Recomendado** — ambiente virtual (evita conflitos com o sistema):
+**Opção A — ambiente virtual com pip** (recomendado, sem dependências extras):
 
 ```bash
 python3 -m venv venv
 source venv/bin/activate
-pip install -r scripts/requirements.txt
+python3 -m pip install -r scripts/requirements.txt
 ```
 
-Alternativamente, sem ambiente virtual:
+**Opção B — `uv`** (alternativa mais rápida e portátil):
 
 ```bash
-python3 -m pip install -r scripts/requirements.txt
+# Instalar uv, caso ainda não esteja disponível
+python3 -m pip install --user uv
+
+# Criar e ativar ambiente virtual gerenciado pelo uv
+uv venv .venv
+source .venv/bin/activate
+
+# Instalar dependências Python do artefato
+uv pip install -r scripts/requirements.txt
 ```
 
 ## Verificação rápida
@@ -455,9 +480,11 @@ Na saída do script, na análise **"Bandwidth by Phase"**, observar:
 
 > **Nota**: O artigo reporta +548% de overhead no *setup*, que corresponde ao **agregado** de Agreement + Initial Distribution (ratio de 6,48× reportado na seção "Correlação Bandwidth vs Tempo" do script). O script decompõe essas fases separadamente para maior granularidade.
 
+> **Nota sobre o artefato atual**: No artefato atual, após a unificação do formato JSON das mensagens, os overheads de `Initial Distribution` e `Rotation` passaram de ≈+252% no conjunto canônico para ≈+284%, mantendo a mesma interpretação qualitativa: o custo de banda do plano de controle domina o custo de tempo.
+
 ### Variações aceitáveis
 
-Os overheads percentuais são determinísticos para a parte de protocolo (tamanho de chaves e ciphertexts Kyber são fixos), portanto os valores devem convergir para os reportados. Pequenas variações (±5%) podem decorrer de diferenças na geração de carga de trabalho (distribuição aleatória de tipos de mensagens).
+Os tamanhos das primitivas criptográficas são fixos, mas os overheads percentuais observados podem variar quando há mudanças no formato de serialização, no envelope de mensagens ou na composição da carga de trabalho. No conjunto canônico do manuscrito, os valores esperados são ≈+252% para `Initial Distribution` e `Rotation`. No artefato atual, após as correções de formato e medição, esses valores passam para ≈+284%. Em ambos os casos, a interpretação qualitativa permanece: o overhead de largura de banda concentra-se no plano de controle.
 
 ---
 
@@ -493,6 +520,16 @@ Na análise **"Time by Phase"**, observar:
 ### Variações entre ambientes
 
 Os tempos absolutos variam conforme o ambiente de execução, incluindo CPU, frequência, carga do sistema, sistema operacional, compilador e bibliotecas utilizadas. Os overheads percentuais também podem variar, especialmente quando o baseline clássico apresenta tempos muito baixos. Por isso, os resultados devem ser interpretados em conjunto: percentuais, tempos absolutos, dispersão estatística e configuração experimental. 
+
+### Valores medidos no artefato atual
+
+> **Nota**: Os valores do artigo foram gerados com o commit canônico [`d11365a`](https://github.com/mdo-br/matrix_pqc/commit/d11365a9849a98c37756c1d5382201336e818cdf). Commits posteriores introduziram melhorias de consistência, incluindo unificação do formato JSON das mensagens Olm/Megolm, refatorações de tipo e reorganização do código. Essas mudanças alteraram os valores absolutos e percentuais em novas execuções, embora preservem as tendências qualitativas avaliadas no artigo. Um experimento completo (30 repetições, 4 políticas) com o artefato atual produziu:
+>
+> - **`setup_time_ms`**: overhead **+203% a +239%** por tipo de sala
+> - **`rotation_time_ms`**: overhead **+146% a +210%** por tipo de sala
+> - **`encrypt_steady_state_ms`**: overhead ≈ 0% (Megolm AES-256 não é alterado)
+>
+> Em valores absolutos (DM, N=2): setup Classical ≈ 0,43 ms → Hybrid ≈ 1,29 ms; rotation Classical ≈ 0,90 ms → Hybrid ≈ 2,25 ms. As tendências qualitativas do artigo permanecem: o overhead de tempo é mensurável e estatisticamente significativo, cresce com N, permanece pequeno em termos absolutos para salas pequenas e o plano de dados Megolm continua sem overhead PQC.
 
 ---
 
@@ -585,7 +622,7 @@ Os experimentos do artigo foram conduzidos no seguinte ambiente:
 | **Rust**         | 1.70+ (edition 2021)               |
 | **Python**       | 3.8+                               |
 
-> **Nota**: Os resultados de tempo absoluto podem variar em hardware diferente. Os overheads percentuais e as relações de proporcionalidade entre configurações devem ser reprodutíveis em qualquer hardware moderno.
+> **Nota**: Os resultados de tempo absoluto podem variar em hardware diferente. Os overheads percentuais de tempo também podem variar, especialmente quando o baseline clássico apresenta tempos muito baixos. As relações qualitativas esperadas como crescimento com N, custo concentrado no plano de controle e ausência de overhead no plano de dados devem ser preservadas em hardware moderno.
 
 ---
 
