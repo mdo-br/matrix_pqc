@@ -1,21 +1,19 @@
-// Double Ratchet Híbrido com CRYSTALS-Kyber (NIST Round 3)
-//
-// Extensão pós-quântica do Double Ratchet vodozemac com ratcheting KEM:
-//
-// ARQUITETURA:
-// - Base clássica: vodozemac Session (X25519 ECDH + AES-256-CBC + HMAC-SHA-256)
-// - Extensão PQC: X25519 + CRYSTALS-Kyber (512/768/1024) em paralelo
-// - Derivação híbrida: HKDF-SHA-256 combina segredos DH + KEM
-// - Formato mensagem: JSON Matrix-compatível {"type":2,"body":"..."}
-//
-// Módulos:
-// - kem:     Wrappers ZeroizingKyber*Key + KemKeyPair + KemPublicKey
-// - keys:    PqcRatchetKeyPair + PqcRatchetPublicKey + hkdf_hybrid_ratchet
-// - message: PqcOlmMessage (serialização/deserialização JSON Matrix)
-// - state:   PqcRatchetState + PqcDoubleRatchetState + RatchetStats
-// - session: HybridOlmSession + SessionStats
+//! Hybrid Double Ratchet with CRYSTALS-Kyber (NIST Round 3).
+//!
+//! Post-quantum extension of the vodozemac Double Ratchet with KEM ratcheting:
+//! - Classical base: vodozemac Session (X25519 ECDH + AES-256-CBC + HMAC-SHA-256)
+//! - PQC extension: X25519 + CRYSTALS-Kyber (512/768/1024) in parallel
+//! - Hybrid derivation: HKDF-SHA-256 combines DH + KEM shared secrets
+//! - Message format: Matrix-compatible JSON `{"type":2,"body":"..."}`
+//!
+//! Modules:
+//! - `kem`:     ZeroizingKyber*Key wrappers + KemKeyPair + KemPublicKey
+//! - `keys`:    PqcRatchetKeyPair + PqcRatchetPublicKey + hkdf_hybrid_ratchet
+//! - `message`: PqcOlmMessage (JSON Matrix serialization/deserialization)
+//! - `state`:   PqcRatchetState + PqcDoubleRatchetState + RatchetStats
+//! - `session`: HybridOlmSession + SessionStats
 
-// Re-exports de API pública — itens podem não ter consumidores dentro deste crate binário.
+// Public API re-exports — items may have no consumers within this binary crate.
 #![allow(unused_imports)]
 
 pub mod kem;

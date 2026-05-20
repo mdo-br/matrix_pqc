@@ -1,4 +1,4 @@
-// HybridOlmSession: orquestrador vodozemac + Double Ratchet PQC
+//! `HybridOlmSession`: vodozemac + PQC Double Ratchet orchestrator.
 
 use crate::core::crypto::{CryptoError, KemAlgorithm};
 use vodozemac::olm::Session as VodoSession;
@@ -8,62 +8,55 @@ use super::keys::{PqcRatchetKeyPair, PqcRatchetPublicKey};
 use super::message::PqcOlmMessage;
 use super::state::{PqcDoubleRatchetState, PqcRatchetState, RatchetStats};
 
-/// Sessão Olm híbrida (orquestrador vodozemac + Double Ratchet PQC)
+/// Hybrid Olm session combining a vodozemac base session with a PQC Double Ratchet.
 ///
-/// Combina sessão vodozemac clássica (base) com Double Ratchet PQC (extensão)
-/// para fornecer segurança híbrida pós-quântica mantendo compatibilidade Matrix.
+/// Provides post-quantum hybrid security while remaining Matrix-compatible.
 ///
-/// # Arquitetura em Camadas
+/// # Layer architecture
 ///
-/// **Camada Base (vodozemac_session)**:
-/// - Double Ratchet clássico: X25519 ECDH
-/// - Criptografia: AES-256-CBC + HMAC-SHA-256
-/// - Formato: PreKeyMessage (primeira) ou Normal Message (subsequentes)
+/// **Classical layer (`vodozemac_session`)**: X25519 ECDH + AES-256-CBC + HMAC-SHA-256,
+/// producing standard `PreKeyMessage` / `Normal Message` wire frames.
 ///
-/// **Camada PQC (pqc_ratchet)**:
-/// - Double Ratchet híbrido: X25519 + Kyber KEM em paralelo
-/// - Derivação: HKDF-SHA-256 combina segredos DH + KEM → root_key + chain_key
-/// - Estados: Active (enviando) ↔ Inactive (aguardando enviar)
+/// **PQC layer (`pqc_ratchet`)**: X25519 + Kyber KEM in parallel, with HKDF-SHA-256
+/// combining both shared secrets into a root key and chain key.
+/// States: `Active` (sending) ↔ `Inactive` (awaiting send).
 ///
-/// **Camada de Mensagem**:
-/// - Formato JSON: `{"type":2,"body":"base64"}` para mensagens PQC
-/// - Detecção: Prefixo JSON identifica PQC, Base64 puro identifica clássico
+/// **Message layer**: `{"type":2,"body":"<base64>"}` JSON; the `{"type":2,...}` prefix
+/// distinguishes PQC frames from classical Base64 frames.
 ///
-/// # Fluxo de Operação
+/// # Initialisation
+/// 1. `from_vodozemac(session)` — classical-only mode.
+/// 2. `enable_pqc_mode()` (sender) or `enable_pqc_mode_as_receiver()` (receiver).
 ///
-/// **Inicialização**:
-/// 1. `from_vodozemac(vodozemac_session)` → modo clássico
-/// 2. `enable_pqc_mode()` (sender) ou `enable_pqc_mode_as_receiver()` (receiver)
+/// # Encryption (`encrypt_hybrid`)
+/// 1. Advance PQC ratchet → symmetric or asymmetric step.
+/// 2. `vodozemac_session.encrypt()` → `classic_component`.
+/// 3. Assemble [`PqcOlmMessage`] and serialise to JSON.
 ///
-/// **Criptografia** (`encrypt_hybrid`):
-/// 1. Avanço ratchet PQC → determina simétrico ou assimétrico
-/// 2. Vodozemac encrypt → classic_component
-/// 3. Monta PqcOlmMessage + serializa JSON
-///
-/// **Descriptografia** (`decrypt_hybrid`):
-/// 1. Deserializa PqcOlmMessage do JSON
-/// 2. Compara ratchet_key → detecta mudança de direção
-/// 3. Avança ratchet conforme necessário
-/// 4. Vodozemac decrypt → plaintext
+/// # Decryption (`decrypt_hybrid`)
+/// 1. Deserialise [`PqcOlmMessage`] from JSON.
+/// 2. Compare `ratchet_key` to detect direction change.
+/// 3. Advance ratchet accordingly.
+/// 4. `vodozemac_session.decrypt()` → plaintext.
 pub struct HybridOlmSession {
-    /// Sessão vodozemac base — pública para compatibilidade direta
+    /// Base vodozemac session — public for direct compatibility access.
     pub vodozemac_session: VodoSession,
-    /// Estado do Double Ratchet híbrido PQC
+    /// PQC Double Ratchet state; `None` when operating in classical-only mode.
     pqc_ratchet: Option<PqcDoubleRatchetState>,
-    /// Contador de mensagens processadas
+    /// Total number of messages processed by this session.
     message_counter: u32,
-    /// KEM ciphertext pendente de forced ratchet (para incluir na próxima mensagem)
+    /// KEM ciphertext from a forced ratchet advance, to be attached to the next outgoing message.
     pending_kem_ciphertext: Option<Vec<u8>>,
 }
 
 #[allow(dead_code)]
 impl HybridOlmSession {
-    /// Retorna referência à sessão vodozemac base
+    /// Returns a reference to the underlying vodozemac session.
     pub fn get_vodozemac_session(&self) -> &VodoSession {
         &self.vodozemac_session
     }
 
-    /// Cria sessão híbrida a partir de sessão vodozemac
+    /// Creates a hybrid session wrapping an existing vodozemac session.
     pub fn from_vodozemac(session: VodoSession) -> Self {
         Self {
             vodozemac_session: session,
@@ -73,7 +66,7 @@ impl HybridOlmSession {
         }
     }
 
-    /// Habilita modo PQC (Alice — primeiro a enviar)
+    /// Enables PQC mode for the sender (Alice — sends first).
     pub fn enable_pqc_mode(&mut self, initial_root_key: [u8; 32], kem_algorithm: KemAlgorithm) {
         self.pqc_ratchet = Some(PqcDoubleRatchetState::new(
             initial_root_key,
@@ -87,7 +80,7 @@ impl HybridOlmSession {
         );
     }
 
-    /// Habilita modo PQC como receptor (Bob — primeiro a receber)
+    /// Enables PQC mode for the receiver (Bob — receives first).
     pub fn enable_pqc_mode_as_receiver(
         &mut self,
         initial_root_key: [u8; 32],
@@ -105,12 +98,12 @@ impl HybridOlmSession {
         );
     }
 
-    /// Versão de compatibilidade (usa Kyber1024)
+    /// Compatibility alias — enables PQC mode with Kyber-1024.
     pub fn enable_pqc_mode_default(&mut self, initial_root_key: [u8; 32]) {
         self.enable_pqc_mode(initial_root_key, KemAlgorithm::Kyber1024);
     }
 
-    /// Define chave pública do peer para PQC
+    /// Sets the peer's PQC ratchet public key.
     pub fn set_peer_pqc_key(&mut self, peer_key: PqcRatchetPublicKey) -> Result<(), CryptoError> {
         if let Some(ref mut pqc_state) = self.pqc_ratchet {
             pqc_state.set_peer_ratchet_key(peer_key);
@@ -120,7 +113,7 @@ impl HybridOlmSession {
         }
     }
 
-    /// Obtém nossas chaves ratchet públicas atuais
+    /// Returns our current public ratchet keys.
     pub fn get_our_ratchet_keys(&self) -> Result<PqcRatchetPublicKey, CryptoError> {
         if let Some(ref pqc_state) = self.pqc_ratchet {
             match &pqc_state.state {
@@ -136,11 +129,11 @@ impl HybridOlmSession {
         }
     }
 
-    /// Força avanço assimétrico do Double Ratchet PQC (para rotações Megolm)
+    /// Forces an asymmetric PQC ratchet advance (used on Megolm key rotations).
     ///
-    /// Executa KEM completo imediatamente e armazena o ciphertext em
-    /// `pending_kem_ciphertext` para ser incluído na próxima mensagem enviada.
-    /// Garante forward secrecy PQC na rotação de chaves Megolm.
+    /// Executes the full KEM immediately and stores the ciphertext in
+    /// `pending_kem_ciphertext` to be included in the next outgoing message,
+    /// ensuring PQC forward secrecy across Megolm key rotations.
     pub fn force_asymmetric_ratchet_advance(&mut self) -> Result<(), CryptoError> {
         if let Some(ref mut pqc_state) = self.pqc_ratchet {
             vlog!(
@@ -242,7 +235,7 @@ impl HybridOlmSession {
         }
     }
 
-    /// Criptografa mensagem com Double Ratchet híbrido
+    /// Encrypts a plaintext using the hybrid Double Ratchet.
     pub fn encrypt_hybrid(&mut self, plaintext: &[u8]) -> Result<PqcOlmMessage, CryptoError> {
         self.message_counter += 1;
 
@@ -263,7 +256,7 @@ impl HybridOlmSession {
             let classic_msg = self.vodozemac_session.encrypt(plaintext);
             let mut pqc_msg = PqcOlmMessage::from_classic(classic_msg, self.message_counter);
 
-            // Padrão Matrix: SEMPRE incluir nossa ratchet key atual
+            // Matrix pattern: ALWAYS include our current ratchet key
             let our_current_ratchet_key = match &pqc_state.state {
                 PqcRatchetState::Active {
                     our_ratchet_keys, ..
@@ -275,7 +268,7 @@ impl HybridOlmSession {
 
             pqc_msg = pqc_msg.with_pqc_ratchet(our_current_ratchet_key);
 
-            // Prioridade: KEM ciphertext de forced ratchet sobre o do avanço normal
+            // Priority: KEM ciphertext from forced ratchet takes precedence over normal advance
             if let Some(pending_kem) = self.pending_kem_ciphertext.take() {
                 vlog!(
                     VerbosityLevel::Debug,
@@ -306,7 +299,7 @@ impl HybridOlmSession {
         }
     }
 
-    /// Descriptografa mensagem com Double Ratchet híbrido
+    /// Decrypts a message using the hybrid Double Ratchet.
     pub fn decrypt_hybrid(&mut self, pqc_msg: &PqcOlmMessage) -> Result<Vec<u8>, CryptoError> {
         if let Some(ref mut pqc_state) = self.pqc_ratchet {
             if let Some(ref new_ratchet_key) = pqc_msg.ratchet_key {
@@ -367,7 +360,7 @@ impl HybridOlmSession {
                     Ok(plaintext)
                 }
             } else {
-                // Retrocompatibilidade: mensagem sem ratchet_key
+                // Backward compatibility: message without ratchet_key
                 vlog!(
                     VerbosityLevel::Debug,
                     "  ├─Sem ratchet_key (retrocompatibilidade)"
@@ -412,11 +405,10 @@ impl HybridOlmSession {
         }
     }
 
-    /// Verifica se a sessão PQC tem peer_key definida (sessão já foi usada)
+    /// Returns `true` if the PQC session has a peer key set (session has been used).
     ///
-    /// Verifica AMBAS as camadas:
-    /// - Camada PQC: their_ratchet_key (KEM peer key)
-    /// - Camada clássica: vodozemac has_received_message (DH peer key)
+    /// Checks both layers: PQC (`their_ratchet_key`) and classical
+    /// (`vodozemac_session.has_received_message()`).
     pub fn has_peer_key(&self) -> bool {
         let pqc_has_peer = if let Some(ref pqc_state) = self.pqc_ratchet {
             match &pqc_state.state {
@@ -436,17 +428,17 @@ impl HybridOlmSession {
         self.vodozemac_session.has_received_message()
     }
 
-    /// Verifica se a sessão vodozemac já recebeu mensagem do peer
+    /// Returns `true` if the underlying vodozemac session has received a message.
     pub fn has_received_message_classic(&self) -> bool {
         self.vodozemac_session.has_received_message()
     }
 
-    /// Criptografia clássica (fallback/compatibilidade)
+    /// Classical encryption fallback (for compatibility).
     pub fn encrypt_classic(&mut self, plaintext: &[u8]) -> vodozemac::olm::OlmMessage {
         self.vodozemac_session.encrypt(plaintext)
     }
 
-    /// Descriptografia clássica (fallback/compatibilidade)
+    /// Classical decryption fallback (for compatibility).
     pub fn decrypt_classic(
         &mut self,
         message: &vodozemac::olm::OlmMessage,
@@ -454,8 +446,8 @@ impl HybridOlmSession {
         self.vodozemac_session.decrypt(message)
     }
 
-    /// Criptografa de forma inteligente (PQC se disponível, senão clássico)
-    /// Retorna string serializada compatível com Matrix
+    /// Encrypts using PQC if available, falling back to classical.
+    /// Returns a Matrix-compatible serialized string.
     pub fn encrypt_transparent(&mut self, plaintext: &[u8]) -> String {
         if self.pqc_ratchet.is_some() {
             match self.encrypt_hybrid(plaintext) {
@@ -474,7 +466,7 @@ impl HybridOlmSession {
         }
     }
 
-    /// Descriptografa de forma inteligente (detecta formato pelo prefixo)
+    /// Decrypts automatically, detecting the frame format from its prefix.
     pub fn decrypt_transparent(&mut self, ciphertext: &str) -> Result<Vec<u8>, CryptoError> {
         if ciphertext.starts_with(r#"{"type":2,"#) {
             if self.pqc_ratchet.is_some() {
@@ -524,27 +516,27 @@ impl HybridOlmSession {
         Err(CryptoError::Protocol)
     }
 
-    /// Verifica se modo PQC está ativo
+    /// Returns `true` if PQC mode is active.
     pub fn is_pqc_enabled(&self) -> bool {
         self.pqc_ratchet.is_some()
     }
 
-    /// Obtém e remove o pending_kem_ciphertext
+    /// Takes and returns the pending KEM ciphertext, leaving `None` in its place.
     pub fn take_pending_kem_ciphertext(&mut self) -> Option<Vec<u8>> {
         self.pending_kem_ciphertext.take()
     }
 
-    /// Define o pending_kem_ciphertext
+    /// Stores a KEM ciphertext to be attached to the next outgoing message.
     pub fn set_pending_kem_ciphertext(&mut self, kem_ct: Vec<u8>) {
         self.pending_kem_ciphertext = Some(kem_ct);
     }
 
-    /// Obtém ID da sessão
+    /// Returns the session ID from the underlying vodozemac session.
     pub fn session_id(&self) -> String {
         self.vodozemac_session.session_id()
     }
 
-    /// Obtém estatísticas da sessão híbrida
+    /// Returns a statistics snapshot for this hybrid session.
     pub fn get_session_stats(&self) -> SessionStats {
         let pqc_stats = self.pqc_ratchet.as_ref().map(|s| s.get_ratchet_stats());
         SessionStats {
@@ -556,7 +548,7 @@ impl HybridOlmSession {
     }
 }
 
-/// Estatísticas da sessão híbrida
+/// Statistics snapshot for a hybrid Olm session.
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct SessionStats {

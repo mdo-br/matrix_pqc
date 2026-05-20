@@ -1,4 +1,4 @@
-// Tipo de mensagem híbrida PQC (PqcOlmMessage) com serialização Matrix-compatível
+//! Hybrid PQC message type (`PqcOlmMessage`) with Matrix-compatible serialization.
 
 use crate::core::crypto::CryptoError;
 use vodozemac::olm::{OlmMessage, Message, PreKeyMessage};
@@ -7,51 +7,35 @@ use crate::utils::logging::VerbosityLevel;
 use crate::vlog;
 use super::keys::PqcRatchetPublicKey;
 
-/// Mensagem Olm híbrida com componentes PQC adicionais
+/// Hybrid Olm message wrapping a vodozemac `OlmMessage` with PQC extensions.
 ///
-/// Wrapper sobre vodozemac OlmMessage que adiciona campos necessários para
-/// o Double Ratchet PQC, mantendo compatibilidade com o protocolo Matrix.
+/// Maintains full Matrix protocol compatibility while adding the fields required
+/// for the hybrid Double Ratchet (ratchet public key + KEM ciphertext).
 ///
-/// # Estrutura (Hybrid Layer)
-/// - `classic_component`: OlmMessage vodozemac (PreKeyMessage ou Normal Message)
-/// - `ratchet_key`: Chave pública híbrida atual (Curve25519 + Kyber) — enviada em TODAS
-/// - `kem_ciphertext`: Ciphertext KEM (~768-1568B) — presente APENAS em avanços assimétricos
-/// - `pqc_enabled`: Flag de capacidades PQC ativas
-/// - `message_index`: Contador para verificação de ordem
+/// # Wire format
+/// `{"type":2,"body":"<base64>"}` where the Base64 payload is:
+/// `[1 B version] [1 B classic_type] [4+N B classic] [4 B idx] [1 B pqc_flag]`
+/// `[4+K B ratchet_key] [4+C B kem_ciphertext]`
 ///
-/// # Serialização JSON Matrix-Compatível
-/// Formato: `{"type":2,"body":"base64_payload"}`
-///
-/// Payload binário interno:
-/// 1. pqc_version (1 byte)
-/// 2. classic_type (1 byte): 0=PreKey, 1=Normal
-/// 3. classic_size (4 bytes) + classic_bytes
-/// 4. message_index (4 bytes)
-/// 5. pqc_enabled (1 byte)
-/// 6. ratchet_key_size (4 bytes) + ratchet_bytes (se presente)
-/// 7. kem_ciphertext_size (4 bytes) + kem_ciphertext (se presente)
-///
-/// # Overhead por Tipo de Avanço
-/// - Avanço simétrico: ~40 bytes (headers + ratchet_key sem kem_ciphertext)
-/// - Avanço assimétrico: ~800–1600 bytes (ratchet_key + kem_ciphertext completo)
+/// Overhead: ~40 B on symmetric advances; ~800–1600 B on asymmetric advances
+/// (ratchet_key + kem_ciphertext).
 #[derive(Clone)]
 pub struct PqcOlmMessage {
-    /// Mensagem vodozemac clássica (base)
+    /// Classic vodozemac message (base component).
     pub classic_component: OlmMessage,
-    /// Nova chave pública de ratchet (se ratchet avançou)
+    /// Current ratchet public key (sent in every message).
     pub ratchet_key: Option<PqcRatchetPublicKey>,
-    /// Ciphertext KEM (CRÍTICO para KEM real)
-    /// Contém o resultado de encapsulate() que o receptor usa para decapsulate()
-    /// SEM isso o KEM não funciona — Alice e Bob teriam shared secrets diferentes
+    /// KEM ciphertext produced by `encapsulate()`.
+    /// Must be present on asymmetric advances so the receiver can call `decapsulate()`.
     pub kem_ciphertext: Option<Vec<u8>>,
-    /// Indicador de capacidade PQC
+    /// Indicates that PQC extensions are active on this session.
     pub pqc_enabled: bool,
-    /// Contador de mensagens para verificação
+    /// Message counter for ordering verification.
     pub message_index: u32,
 }
 
 impl PqcOlmMessage {
-    /// Cria mensagem PQC a partir de componente clássico
+    /// Creates a PQC message from a classic component
     pub fn from_classic(classic: OlmMessage, message_index: u32) -> Self {
         Self {
             classic_component: classic,
@@ -62,19 +46,17 @@ impl PqcOlmMessage {
         }
     }
 
-    /// Adiciona componente PQC à mensagem
+    /// Attaches a PQC component to the message
     pub fn with_pqc_ratchet(mut self, ratchet_key: PqcRatchetPublicKey) -> Self {
         self.ratchet_key = Some(ratchet_key);
         self.pqc_enabled = true;
         self
     }
 
-    /// Serializa mensagem híbrida para JSON Matrix-compatível
+    /// Serializes the hybrid message to Matrix-compatible JSON.
     ///
-    /// Formato: `{"type":2,"body":"base64_payload"}`
-    ///
-    /// O JSON é necessário para evitar dupla codificação Base64:
-    /// com JSON, apenas UMA camada de Base64 cobre o payload completo.
+    /// Produces `{"type":2,"body":"<base64>"}`. A single Base64 layer covers the
+    /// full binary payload, avoiding double encoding.
     pub fn to_transport_string(&self) -> String {
         let (classic_type, classic_bytes) = match &self.classic_component {
             OlmMessage::PreKey(m) => (0u8, m.to_bytes()),
@@ -83,17 +65,17 @@ impl PqcOlmMessage {
 
         let mut payload = Vec::new();
 
-        // 1. Versão PQC
+        // 1. PQC version
         payload.push(1u8);
 
-        // 2. Tipo de mensagem clássica
+        // 2. Classic message type
         payload.push(classic_type);
 
-        // 3. Tamanho e dados da mensagem clássica
+        // 3. Classic message size and data
         payload.extend_from_slice(&(classic_bytes.len() as u32).to_le_bytes());
         payload.extend_from_slice(&classic_bytes);
 
-        // 4. Metadata PQC
+        // 4. PQC metadata
         payload.extend_from_slice(&self.message_index.to_le_bytes());
         let pqc_enabled_byte = if self.pqc_enabled { 1 } else { 0 };
         vlog!(
@@ -105,7 +87,7 @@ impl PqcOlmMessage {
         );
         payload.push(pqc_enabled_byte);
 
-        // 5. Chave de ratchet PQC (se disponível)
+        // 5. PQC ratchet key (if available)
         if let Some(ref ratchet_key) = self.ratchet_key {
             let ratchet_bytes = ratchet_key.to_bytes();
             payload.extend_from_slice(&(ratchet_bytes.len() as u32).to_le_bytes());
@@ -114,7 +96,7 @@ impl PqcOlmMessage {
             payload.extend_from_slice(&0u32.to_le_bytes());
         }
 
-        // 6. Ciphertext KEM (só presente em avanços assimétricos)
+        // 6. KEM ciphertext (only present on asymmetric advances)
         if let Some(ref kem_ct) = self.kem_ciphertext {
             payload.extend_from_slice(&(kem_ct.len() as u32).to_le_bytes());
             payload.extend_from_slice(kem_ct);
@@ -137,7 +119,7 @@ impl PqcOlmMessage {
         format!(r#"{{"type":2,"body":"{}"}}"#, body_b64)
     }
 
-    /// Reconstrói mensagem híbrida do JSON Matrix
+    /// Reconstructs the hybrid message from Matrix JSON
     pub fn from_transport_string(transport: &str) -> Result<Self, CryptoError> {
         let transport = transport.trim();
         if !transport.starts_with(r#"{"type":2,"#) {
@@ -170,18 +152,18 @@ impl PqcOlmMessage {
 
         let mut cursor = 0;
 
-        // 1. Versão PQC
+        // 1. PQC version
         let pqc_version = bytes[cursor];
         if pqc_version != 1 {
             return Err(CryptoError::Protocol);
         }
         cursor += 1;
 
-        // 2. Tipo de mensagem clássica
+        // 2. Classic message type
         let classic_type = bytes[cursor];
         cursor += 1;
 
-        // 3. Componente clássico
+        // 3. Classic component
         let classic_size = u32::from_le_bytes(
             bytes[cursor..cursor + 4]
                 .try_into()
@@ -206,7 +188,7 @@ impl PqcOlmMessage {
             _ => return Err(CryptoError::Protocol),
         };
 
-        // 4. Metadata PQC
+        // 4. PQC metadata
         if cursor + 5 > bytes.len() {
             return Err(CryptoError::Protocol);
         }
@@ -221,7 +203,7 @@ impl PqcOlmMessage {
         let pqc_enabled = bytes[cursor] != 0;
         cursor += 1;
 
-        // 5. Chave de ratchet PQC
+        // 5. PQC ratchet key
         if cursor + 4 > bytes.len() {
             return Err(CryptoError::Protocol);
         }
@@ -244,7 +226,7 @@ impl PqcOlmMessage {
             None
         };
 
-        // 6. Ciphertext KEM
+        // 6. KEM ciphertext
         let kem_ciphertext = if cursor + 4 <= bytes.len() {
             let kem_ct_size = u32::from_le_bytes(
                 bytes[cursor..cursor + 4]

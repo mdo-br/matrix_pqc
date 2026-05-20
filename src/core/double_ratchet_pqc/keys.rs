@@ -1,4 +1,4 @@
-// Pares de chaves do Double Ratchet híbrido (X25519 + CRYSTALS-Kyber)
+//! Hybrid Double Ratchet key pairs (X25519 + CRYSTALS-Kyber).
 
 use crate::core::crypto::{CryptoError, KemAlgorithm};
 use vodozemac::{Curve25519PublicKey, Curve25519SecretKey};
@@ -9,26 +9,17 @@ use pqcrypto_kyber::{kyber512, kyber768, kyber1024};
 use pqcrypto_traits::kem::PublicKey;
 use super::kem::{KemKeyPair, KemPublicKey};
 
-/// Par de chaves de ratchet híbrido (X25519 + CRYSTALS-Kyber)
+/// Hybrid ratchet key pair combining X25519 ECDH and Kyber KEM.
 ///
-/// Combina criptografia clássica (X25519 ECDH) e pós-quântica (Kyber KEM)
-/// em um único par de chaves para uso no Double Ratchet híbrido.
+/// Generated on every direction change (asymmetric advance). The sender calls
+/// [`hybrid_dh_with_kem`] to produce a shared secret and a ciphertext; the receiver
+/// calls [`hybrid_dh_with_decapsulate`] with that ciphertext to derive the same secret.
+/// Both sides combine the results via HKDF-SHA-256 into the same root/chain key.
 ///
-/// # Componentes
-/// - `curve25519_secret/public`: Par de chaves X25519 para acordos Diffie-Hellman
-/// - `kem_keypair`: Par de chaves Kyber (512/768/1024) para Key Encapsulation
-/// - `kem_algorithm`: Identifica qual variante Kyber está ativa
-///
-/// # Segurança (Zeroização)
-/// - X25519: Zeroização automática via vodozemac (implementa Zeroize trait)
-/// - Kyber: Zeroização manual via wrappers ZeroizingKyber*Key com Drop trait
-/// - Sem Clone: Previne múltiplas cópias de chaves privadas na memória
-///
-/// # Uso no Double Ratchet
-/// - Gerado a cada mudança de direção (avanço assimétrico)
-/// - Sender: `hybrid_dh_with_kem()` → gera shared_secret + kem_ciphertext
-/// - Receiver: `hybrid_dh_with_decapsulate(kem_ciphertext)` → reconstrói shared_secret
-/// - Ambos combinam via HKDF-SHA-256 → mesma root_key e chain_key
+/// # Zeroization
+/// X25519 key material is zeroized automatically by vodozemac. Kyber secret keys are
+/// wrapped in `ZeroizingKyber*Key` types that overwrite memory on `Drop`. `Clone` is
+/// intentionally not derived to prevent accidental key duplication.
 pub struct PqcRatchetKeyPair {
     pub curve25519_secret: Curve25519SecretKey,
     pub curve25519_public: Curve25519PublicKey,
@@ -37,7 +28,7 @@ pub struct PqcRatchetKeyPair {
 }
 
 impl PqcRatchetKeyPair {
-    /// Gera novo par de chaves de ratchet híbrido
+    /// Generates a new hybrid ratchet key pair
     pub fn generate(kem_algorithm: KemAlgorithm) -> Self {
         let curve25519_secret = Curve25519SecretKey::new();
         let curve25519_public = Curve25519PublicKey::from(&curve25519_secret);
@@ -50,7 +41,7 @@ impl PqcRatchetKeyPair {
         }
     }
 
-    /// Exporta chaves públicas
+    /// Exports the public keys
     pub fn public_keys(&self) -> PqcRatchetPublicKey {
         PqcRatchetPublicKey {
             curve25519_key: self.curve25519_public,
@@ -59,9 +50,10 @@ impl PqcRatchetKeyPair {
         }
     }
 
-    /// Executa acordo híbrido COM ciphertext KEM (encapsulate)
-    /// Retorna: (combined_shared_secret, kem_ciphertext)
-    /// O ciphertext DEVE ser enviado ao peer para que ele possa derivar o mesmo SS
+    /// Performs a hybrid key agreement and encapsulation against `peer_public`.
+    ///
+    /// Returns `(combined_shared_secret, kem_ciphertext)`. The ciphertext must be
+    /// transmitted to the peer so they can derive the same shared secret.
     pub fn hybrid_dh_with_kem(
         &self,
         peer_public: &PqcRatchetPublicKey,
@@ -83,8 +75,7 @@ impl PqcRatchetKeyPair {
         Ok((combined.to_vec(), kem_ciphertext))
     }
 
-    /// Executa acordo híbrido usando ciphertext KEM recebido (decapsulate)
-    /// Peer usa isso quando recebe uma mensagem com kem_ciphertext
+    /// Performs a hybrid key agreement using a received KEM ciphertext (decapsulate).
     pub fn hybrid_dh_with_decapsulate(
         &self,
         peer_public: &PqcRatchetPublicKey,
@@ -107,28 +98,19 @@ impl PqcRatchetKeyPair {
     }
 }
 
-/// Chave pública de ratchet híbrida (transmitida em mensagens PQC)
+/// Public half of a hybrid ratchet key pair (transmitted in every PQC message).
 ///
-/// Contém componentes públicos do par de chaves híbrido que são enviados
-/// em cada mensagem do Double Ratchet PQC para permitir avanço assimétrico.
+/// Holds the Curve25519 and Kyber public keys needed for the receiver to detect
+/// direction changes and execute the KEM.
 ///
-/// # Estrutura
-/// - `curve25519_key`: Chave pública X25519 (32 bytes fixos)
-/// - `kem_public_key`: Chave pública Kyber (tamanho variável: 800/1184/1568 bytes)
-/// - `kem_algorithm`: Identificador do algoritmo (Kyber512/768/1024)
+/// # Wire format
+/// `[32 B Curve25519] [2 B kem_size LE] [kem_bytes] [1 B algorithm]`
+/// — Base64-encoded for Matrix transmission.
+/// Total sizes: ~835 B (Kyber-512), ~1219 B (Kyber-768), ~1603 B (Kyber-1024).
 ///
-/// # Serialização Binária Otimizada
-/// Formato: [32B Curve25519] [2B kem_size] [kem_bytes] [1B algorithm]
-/// - Minimiza overhead comparado a JSON
-/// - Compatível com Base64 para transmissão Matrix
-/// - Tamanho total: ~835B (Kyber512), ~1219B (Kyber768), ~1603B (Kyber1024)
-///
-/// # Uso no Protocolo
-/// Enviada em TODAS as mensagens PQC (padrão Matrix/vodozemac):
-/// - Permite que receiver detecte mudanças de direção
-/// - Comparação de bytes identifica se houve avanço assimétrico
-/// - Se chave mudou: executar KEM com kem_ciphertext
-/// - Se chave igual: avanço simétrico (sem KEM)
+/// If the ratchet key in a received message differs from the stored peer key an
+/// asymmetric advance is required and `kem_ciphertext` must be present; otherwise
+/// only a symmetric chain-key advance is performed.
 #[derive(Clone)]
 pub struct PqcRatchetPublicKey {
     pub curve25519_key: Curve25519PublicKey,
@@ -136,15 +118,15 @@ pub struct PqcRatchetPublicKey {
     pub kem_algorithm: KemAlgorithm,
 }
 
-/// Métodos de diagnóstico/utilidade — API pública sem consumidores internos
+/// Diagnostic/utility methods — public API without internal consumers
 #[allow(dead_code)]
 impl PqcRatchetPublicKey {
-    /// Calcula tamanho total em bytes (dinâmico)
+    /// Computes total size in bytes (dynamic)
     pub fn size_bytes(&self) -> usize {
         self.curve25519_key.as_bytes().len() + self.kem_public_key.size_bytes()
     }
 
-    /// Informações detalhadas da chave
+    /// Detailed key information
     pub fn info(&self) -> String {
         format!(
             "PqcRatchetPublicKey: Curve25519 (32B) + {} ({}B) = {}B total",
@@ -154,12 +136,12 @@ impl PqcRatchetPublicKey {
         )
     }
 
-    /// Serializa para Base64 seguindo padrão vodozemac
+    /// Serializes to Base64 following the vodozemac convention
     pub fn to_base64(&self) -> String {
         B64.encode(&self.to_bytes())
     }
 
-    /// Desserializa de Base64
+    /// Deserializes from Base64
     pub fn from_base64(b64: &str) -> Result<Self, CryptoError> {
         let bytes = B64.decode(b64).map_err(|_| CryptoError::Protocol)?;
         Self::from_bytes(&bytes)
@@ -167,7 +149,7 @@ impl PqcRatchetPublicKey {
 }
 
 impl PqcRatchetPublicKey {
-    /// Serializa para bytes brutos (sem Base64)
+    /// Serializes to raw bytes (without Base64)
     /// Formato: [32B Curve25519] [2B kem_size] [kem_bytes] [1B algorithm]
     pub fn to_bytes(&self) -> Vec<u8> {
         let curve25519_bytes = self.curve25519_key.as_bytes();
@@ -191,10 +173,10 @@ impl PqcRatchetPublicKey {
         serialized
     }
 
-    /// Desserializa de bytes brutos
+    /// Deserializes from raw bytes
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, CryptoError> {
         if bytes.len() < 35 {
-            // Mínimo: 32 (Curve25519) + 2 (size) + 1 (algorithm)
+            // Minimum: 32 (Curve25519) + 2 (size) + 1 (algorithm)
             return Err(CryptoError::Protocol);
         }
 
@@ -245,14 +227,11 @@ impl PqcRatchetPublicKey {
     }
 }
 
-/// Derivação híbrida HKDF-SHA-256 para combinação de segredos DH + KEM
+/// Hybrid HKDF-SHA-256 derivation combining a DH and a KEM shared secret.
 ///
-/// Combina segredos clássico (X25519) e pós-quântico (Kyber KEM) para produzir
-/// 64 bytes de material de chaveamento: [root_key(32) || chain_key(32)]
-///
-/// # Segurança Híbrida
-/// Security = max(security_classic, security_pqc) — ambos devem ser quebrados
-/// simultaneamente para comprometer o protocolo.
+/// Produces 64 bytes of keying material `[root_key(32) || chain_key(32)]`.
+/// Security is `max(security_classic, security_pqc)` — an attacker must break
+/// both primitives simultaneously to compromise the output.
 fn hkdf_hybrid_ratchet(classic_shared: &[u8], pqc_shared: &[u8], context: &[u8]) -> Vec<u8> {
     let salt = b"matrix-hybrid-double-ratchet-v1";
     let hk = Hkdf::<Sha256>::new(Some(salt), &[classic_shared, pqc_shared].concat());

@@ -1,4 +1,4 @@
-// Máquina de estados do Double Ratchet híbrido PQC
+//! PQC hybrid Double Ratchet state machine.
 
 use crate::core::crypto::{CryptoError, KemAlgorithm};
 use hmac::{Hmac, Mac};
@@ -10,10 +10,10 @@ use super::keys::{PqcRatchetKeyPair, PqcRatchetPublicKey};
 
 type HmacSha256 = Hmac<Sha256>;
 
-// Constantes de derivação seguindo padrão OLM
+// Derivation constants following the OLM convention
 const MESSAGE_KEY_SEED: &[u8; 1] = b"\x01";
 
-// Constantes reservadas para implementação futura
+// Constants reserved for future implementation
 #[allow(dead_code)]
 const MAX_RECEIVING_CHAINS: usize = 5;
 #[allow(dead_code)]
@@ -21,13 +21,12 @@ const MAX_MESSAGE_KEYS: usize = 40;
 #[allow(dead_code)]
 const MAX_MESSAGE_GAP: u64 = 2000;
 
-/// Estados do Double Ratchet híbrido (seguindo padrão vodozemac)
+/// Hybrid Double Ratchet states (following the vodozemac convention).
 ///
-/// SEGURANÇA: Clone não é implementado intencionalmente para evitar múltiplas
-/// cópias de chaves privadas. As chaves privadas estão protegidas por wrappers
-/// ZeroizingKyber*Key.
+/// `Clone` is intentionally not derived; private keys inside each variant are
+/// protected by `ZeroizingKyber*Key` wrappers.
 pub enum PqcRatchetState {
-    /// Estado Ativo: enviando mensagens, tem chain key para próxima mensagem
+    /// Sending direction: has an active chain key for the next outgoing message.
     Active {
         root_key: [u8; 32],
         our_ratchet_keys: PqcRatchetKeyPair,
@@ -35,7 +34,7 @@ pub enum PqcRatchetState {
         chain_key: [u8; 32],
         send_counter: u32,
     },
-    /// Estado Inativo: recebeu mensagem, aguarda enviar (para ativar)
+    /// Receiving direction: waiting to send in order to trigger an asymmetric advance.
     Inactive {
         root_key: [u8; 32],
         our_ratchet_keys: PqcRatchetKeyPair,
@@ -44,20 +43,20 @@ pub enum PqcRatchetState {
     },
 }
 
-/// Estado completo do Double Ratchet híbrido
+/// Full state of the hybrid Double Ratchet.
 pub struct PqcDoubleRatchetState {
-    /// Estado atual do ratchet (Active ou Inactive)
+    /// Current ratchet state (Active or Inactive).
     pub(super) state: PqcRatchetState,
-    /// Flag de modo híbrido ativo
+    /// Whether hybrid mode is enabled.
     hybrid_mode_enabled: bool,
-    /// Algoritmo KEM usado nesta sessão
+    /// KEM algorithm used for this session.
     pub(super) kem_algorithm: KemAlgorithm,
-    /// Contador de avanços assimétricos (mudanças de direção)
+    /// Number of asymmetric advances (direction changes) performed so far.
     pub(super) asymmetric_advance_count: u32,
 }
 
 impl PqcDoubleRatchetState {
-    /// Inicializa estado com chave raiz do PQXDH e algoritmo KEM
+    /// Creates a new state seeded from a PQXDH root key.
     pub fn new(
         initial_root_key: [u8; 32],
         kem_algorithm: KemAlgorithm,
@@ -99,7 +98,7 @@ impl PqcDoubleRatchetState {
         }
     }
 
-    /// Deriva chain key inicial a partir da root key
+    /// Derives the initial chain key from the root key.
     fn derive_initial_chain_key(root_key: &[u8; 32]) -> [u8; 32] {
         use sha2::Digest;
         let mut hasher = sha2::Sha256::new();
@@ -108,7 +107,7 @@ impl PqcDoubleRatchetState {
         hasher.finalize().into()
     }
 
-    /// Deriva chain key a partir do hybrid secret para mensagens consecutivas
+    /// Derives a chain key from the hybrid secret for consecutive messages.
     fn derive_chain_key_from_hybrid(
         hybrid_secret: &[u8],
         message_counter: u32,
@@ -122,7 +121,7 @@ impl PqcDoubleRatchetState {
         Ok(chain_key)
     }
 
-    /// Deriva message key a partir da chain key (padrão OLM: seed 0x01)
+    /// Derives a message key from the chain key (OLM convention: seed `0x01`).
     pub(super) fn derive_message_key_from_chain(
         chain_key: &[u8; 32],
     ) -> Result<[u8; 32], CryptoError> {
@@ -136,7 +135,7 @@ impl PqcDoubleRatchetState {
         Ok(message_key)
     }
 
-    /// Define chave pública do peer (inicialização da sessão)
+    /// Sets the peer's public ratchet key (session initialisation).
     pub fn set_peer_ratchet_key(&mut self, peer_key: PqcRatchetPublicKey) {
         match &mut self.state {
             PqcRatchetState::Active {
@@ -152,9 +151,10 @@ impl PqcDoubleRatchetState {
         }
     }
 
-    /// Avança ratchet para envio COM ciphertext KEM
-    /// Retorna: (chain_key, optional_kem_ciphertext)
-    /// kem_ciphertext é Some() quando há transição Inactive→Active (mudança de direção)
+    /// Advances the ratchet for sending, performing a KEM encapsulation when needed.
+    ///
+    /// Returns `(chain_key, kem_ciphertext)`. `kem_ciphertext` is `Some` only on an
+    /// Inactive → Active transition (direction change / asymmetric advance).
     pub fn advance_sending_ratchet_with_kem(
         &mut self,
     ) -> Result<([u8; 32], Option<Vec<u8>>), CryptoError> {
@@ -176,7 +176,7 @@ impl PqcDoubleRatchetState {
                 their_ratchet_key,
                 receive_counter: _,
             } => {
-                // Transição Inactive → Active: AVANÇO ASSIMÉTRICO
+                // Inactive → Active: asymmetric advance (direction change)
                 vlog!(
                     VerbosityLevel::Normal,
                     " Troca de direção: avanço da catraca assimétrica!"
@@ -217,7 +217,7 @@ impl PqcDoubleRatchetState {
                 chain_key: old_chain_key,
                 send_counter,
             } => {
-                // Continua Active: AVANÇO SIMÉTRICO (apenas chain key)
+                // Still Active: symmetric advance (chain key only)
                 vlog!(
                     VerbosityLevel::Normal,
                     "  Canal ativo: avanço simétrico da chain key (mesmo destinatário)"
@@ -248,7 +248,7 @@ impl PqcDoubleRatchetState {
         }
     }
 
-    /// Verifica se a chave do peer mudou (avanço assimétrico vs. simétrico)
+    /// Returns `true` if the peer's ratchet key has changed since the last advance.
     pub fn has_peer_key_changed(&self, new_key: &PqcRatchetPublicKey) -> bool {
         match &self.state {
             PqcRatchetState::Active {
@@ -266,7 +266,7 @@ impl PqcDoubleRatchetState {
         }
     }
 
-    /// Avança ratchet para recebimento com KEM completo (decapsulate)
+    /// Advances the ratchet for receiving, decapsulating the KEM ciphertext.
     pub fn advance_receiving_ratchet_with_decapsulate(
         &mut self,
         peer_new_key: &PqcRatchetPublicKey,
@@ -330,7 +330,7 @@ impl PqcDoubleRatchetState {
                 their_ratchet_key: _,
                 receive_counter,
             } => {
-                // Já inactive: mensagens consecutivas do peer
+                // Already Inactive: consecutive messages from the peer
                 let new_counter = receive_counter + 1;
 
                 let kem_ct = kem_ciphertext.ok_or(CryptoError::Protocol)?;
@@ -356,7 +356,7 @@ impl PqcDoubleRatchetState {
         }
     }
 
-    /// Deriva root key e chain key usando HKDF (aceita tamanhos dinâmicos)
+    /// Derives the new root key and chain key via HKDF (accepts dynamic input sizes).
     pub(super) fn derive_root_chain_keys(
         hybrid_dh: &[u8],
         current_root_key: &[u8; 32],
@@ -370,7 +370,7 @@ impl PqcDoubleRatchetState {
         hk.expand(info, &mut expanded)
             .map_err(|_| CryptoError::Protocol)?;
 
-        // XOR com root key atual (ratcheting property)
+        // XOR with the current root key (ratcheting property)
         for i in 0..SHA256_SIZE {
             expanded[i] ^= current_root_key[i];
         }
@@ -382,7 +382,7 @@ impl PqcDoubleRatchetState {
         Ok((new_root_key, chain_key))
     }
 
-    /// Obtém estatísticas do Double Ratchet
+    /// Returns current ratchet statistics.
     pub fn get_ratchet_stats(&self) -> RatchetStats {
         let (messages_sent, messages_received, root_key_hash) = match &self.state {
             PqcRatchetState::Active {
@@ -408,7 +408,7 @@ impl PqcDoubleRatchetState {
     }
 }
 
-/// Estatísticas do Double Ratchet
+/// Ratchet statistics snapshot.
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct RatchetStats {

@@ -1,13 +1,13 @@
-// Wrappers de zeroização e tipos KEM genéricos (Kyber-512/768/1024)
+//! Zeroizing wrappers and generic KEM types (Kyber-512/768/1024).
 
 use crate::core::crypto::{CryptoError, KemAlgorithm};
 use pqcrypto_kyber::{kyber512, kyber768, kyber1024};
 use pqcrypto_traits::kem::{PublicKey, SharedSecret, Ciphertext};
 
-/// Wrapper para Kyber512 SecretKey com zeroização manual no Drop.
+/// Wrapper for Kyber512 SecretKey with manual zeroization on Drop.
 ///
-/// Necessário porque pqcrypto-kyber não implementa Zeroize nativamente.
-/// Segue a mesma estratégia do PQXDH: wrapper manual com Drop trait.
+/// Required because pqcrypto-kyber does not implement Zeroize natively.
+/// Uses the same strategy as PQXDH: manual wrapper with Drop trait.
 pub struct ZeroizingKyber512Key(pub(super) kyber512::SecretKey);
 
 impl Drop for ZeroizingKyber512Key {
@@ -32,7 +32,7 @@ impl AsRef<kyber512::SecretKey> for ZeroizingKyber512Key {
     }
 }
 
-/// Wrapper para Kyber768 SecretKey com zeroização manual no Drop.
+/// Wrapper for Kyber768 SecretKey with manual zeroization on Drop.
 pub struct ZeroizingKyber768Key(pub(super) kyber768::SecretKey);
 
 impl Drop for ZeroizingKyber768Key {
@@ -57,7 +57,7 @@ impl AsRef<kyber768::SecretKey> for ZeroizingKyber768Key {
     }
 }
 
-/// Wrapper para Kyber1024 SecretKey com zeroização manual no Drop.
+/// Wrapper for Kyber1024 SecretKey with manual zeroization on Drop.
 pub struct ZeroizingKyber1024Key(pub(super) kyber1024::SecretKey);
 
 impl Drop for ZeroizingKyber1024Key {
@@ -82,11 +82,11 @@ impl AsRef<kyber1024::SecretKey> for ZeroizingKyber1024Key {
     }
 }
 
-/// Par de chaves KEM (suporta Kyber-512/768/1024)
+/// Generic KEM key pair (supports Kyber-512/768/1024).
 ///
-/// SEGURANÇA: Chaves privadas são protegidas por wrappers ZeroizingKyber*Key
-/// que implementam Drop para zeroização automática da memória.
-/// Clone não é implementado intencionalmente para evitar múltiplas cópias de chaves privadas.
+/// Private keys are protected by `ZeroizingKyber*Key` wrappers that implement
+/// `Drop` for automatic memory zeroization. `Clone` is intentionally not
+/// implemented to prevent multiple copies of private keys in memory.
 pub enum KemKeyPair {
     Kyber512 {
         public: kyber512::PublicKey,
@@ -103,7 +103,7 @@ pub enum KemKeyPair {
 }
 
 impl KemKeyPair {
-    /// Gera novo par de chaves KEM
+    /// Generates a new KEM key pair
     pub fn generate(algorithm: KemAlgorithm) -> Self {
         match algorithm {
             KemAlgorithm::Kyber512 => {
@@ -130,7 +130,7 @@ impl KemKeyPair {
         }
     }
 
-    /// Obtém chave pública
+    /// Returns the public key
     pub fn public_key(&self) -> KemPublicKey {
         match self {
             KemKeyPair::Kyber512 { public, .. } => KemPublicKey::Kyber512(public.clone()),
@@ -139,9 +139,8 @@ impl KemKeyPair {
         }
     }
 
-    /// Encapsula segredo compartilhado com chave pública do peer
-    /// Retorna: (shared_secret, ciphertext)
-    /// O ciphertext DEVE ser enviado para o peer para que ele possa decapsular
+    /// Encapsulates a shared secret against the peer's public key.
+    /// Returns `(shared_secret, ciphertext)`; the ciphertext must be sent to the peer.
     pub fn encapsulate_full(&self, peer_public: &KemPublicKey) -> Result<(Vec<u8>, Vec<u8>), CryptoError> {
         match (self, peer_public) {
             (KemKeyPair::Kyber512 { .. }, KemPublicKey::Kyber512(pk)) => {
@@ -160,7 +159,7 @@ impl KemKeyPair {
         }
     }
 
-    /// Desencapsula segredo compartilhado usando ciphertext recebido
+    /// Decapsulates a shared secret using the received ciphertext.
     pub fn decapsulate(&self, ciphertext: &[u8]) -> Result<Vec<u8>, CryptoError> {
         match self {
             KemKeyPair::Kyber512 { secret, .. } => {
@@ -185,7 +184,7 @@ impl KemKeyPair {
     }
 }
 
-/// Chaves públicas KEM genéricas
+/// Generic KEM public keys
 #[derive(Clone)]
 pub enum KemPublicKey {
     Kyber512(kyber512::PublicKey),
@@ -195,7 +194,7 @@ pub enum KemPublicKey {
 
 #[allow(dead_code)]
 impl KemPublicKey {
-    /// Tamanho em bytes da chave pública
+    /// Size in bytes of the public key
     pub fn size_bytes(&self) -> usize {
         match self {
             KemPublicKey::Kyber512(pk) => pk.as_bytes().len(),

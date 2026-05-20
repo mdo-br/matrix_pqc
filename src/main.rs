@@ -118,8 +118,8 @@ fn run_user_profile_benchmark(args: &Args) -> Result<()> {
             vlog!(VerbosityLevel::Verbose, " Política {:?} concluída", policy_arg);
         }
 
-        let timestamp = Local::now().timestamp();
-        let filename = format!("results/resultados_experiment_{}.csv", timestamp);
+        let timestamp = Local::now().format("%Y%m%d_%H%M%S").to_string();
+        let filename = format!("results/user_profile_runs_{}_all_policies.csv", timestamp);
         save_paired_runs_csv(&all_paired_runs, &filename)?;
 
         progress!("\n=== Benchmark Concluído ===");
@@ -138,8 +138,12 @@ fn run_user_profile_benchmark(args: &Args) -> Result<()> {
         
         let results = run_paired_benchmark(user_id, repetitions, policy)?;
         
-        let timestamp = Local::now().timestamp();
-        let filename = format!("results/resultados_experiment_{}.csv", timestamp);
+        let timestamp = Local::now().format("%Y%m%d_%H%M%S").to_string();
+        let policy_tag = match args.rotation_policy {
+            Some(p) => format!("{:?}", p).to_lowercase(),
+            None => "default".to_string(),
+        };
+        let filename = format!("results/user_profile_runs_{}_{}.csv", timestamp, policy_tag);
         save_paired_runs_csv(&results, &filename)?;
         
         progress!("\n Salvo: {}", filename);
