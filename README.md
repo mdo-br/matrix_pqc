@@ -25,7 +25,8 @@ A computação quântica ameaça a criptografia assimétrica dos mensageiros com
    - [Reivindicação 3: Plano de Dados Inalterado](#reivindicação-3-plano-de-dados-inalterado)
    - [Reivindicação 4: Custos de Rotação Escalam como O(N × R)](#reivindicação-4-custos-de-rotação-escalam-como-on--r)
    - [Reivindicação 5: Trade-off Segurança Temporal vs Custo Operacional](#reivindicação-5-trade-off-segurança-temporal-vs-custo-operacional)
-9. [LICENSE](#license)
+9. [Como Citar](#como-citar)
+10. [LICENSE](#license)
 
 ---
 
@@ -604,7 +605,7 @@ Comparar as métricas de `bandwidth_rotation` entre políticas para SmallGroup:
 
 A redução deve ser aproximadamente linear com o intervalo de rotação (10× mais relaxado → 10× menos banda).
 
-> **Nota sobre o artefato atual**: Os valores reportados (e exibidos na figura) correspondem ao overhead de rotação **Hybrid − Classical** (`bandwidth_rotation`). No conjunto canônico do manuscrito, esse overhead para SmallGroup é ≈293,9 kB (Paranoid), ≈147,0 kB (PQ3), ≈68,6 kB (Balanced) e ≈29,4 kB (Relaxed). No artefato atual, após a correção na medição de banda (commit `5b265f4`), os valores passaram para ≈289,7 kB, ≈144,8 kB, ≈67,6 kB e ≈29,0 kB, respectivamente. A diferença é pequena e não altera a interpretação da Reivindicação 5: ao ampliar a janela de segurança de 25 para 250 mensagens, o custo acumulado de rotação cai aproximadamente 10×.
+> **Nota sobre o artefato atual**: Os valores reportados nesta reivindicação, e exibidos na figura correspondente, representam o overhead absoluto acumulado de rotação, calculado como **Hybrid − Classical** para `bandwidth_rotation`, e não o overhead percentual por fase. No conjunto canônico do manuscrito, esse overhead para SmallGroup é ≈293,9 kB (Paranoid), ≈147,0 kB (PQ3), ≈68,6 kB (Balanced) e ≈29,4 kB (Relaxed). No artefato atual, após as alterações de formato e medição de mensagens, incluindo o commit `5b265f4`, os valores passaram para ≈289,7 kB, ≈144,8 kB, ≈67,6 kB e ≈29,0 kB, respectivamente. A diferença absoluta é pequena e não altera a interpretação da Reivindicação 5: ao ampliar a janela de segurança de 25 para 250 mensagens, o custo acumulado de rotação cai aproximadamente 10×.
 
 ### Variações aceitáveis
 
@@ -643,6 +644,29 @@ Este projeto está licenciado sob **GNU Affero General Public License v3.0 (AGPL
 - **Matrix Protocol**: https://matrix.org
 - **Vodozemac**: https://github.com/matrix-org/vodozemac
 - **CRYSTALS-Kyber (NIST PQC)**: https://pq-crystals.org/kyber/
+
+---
+
+# Como Citar
+
+Se você utilizar este artefato em sua pesquisa, por favor cite o artigo original:
+
+```bibtex
+@inproceedings{sbrc,
+ author = {Marcos Ortiz and Vinícius Lagrota and Gilvan Maia and Rodrigo Pacheco and Paulo Rego},
+ title = { Uma Extensão Pós-Quântica Híbrida para o Protocolo Matrix: Avaliação Experimental e Impacto Sistêmico},
+ booktitle = {Anais do XLIV Simpósio Brasileiro de Redes de Computadores e Sistemas Distribuídos},
+ location = {Praia do Forte/BA},
+ year = {2026},
+ keywords = {},
+ issn = {2177-9384},
+ pages = {1457--1470},
+ publisher = {SBC},
+ address = {Porto Alegre, RS, Brasil},
+ doi = {10.5753/sbrc.2026.19881},
+ url = {https://sol.sbc.org.br/index.php/sbrc/article/view/42377}
+}
+```
 
 ---
 

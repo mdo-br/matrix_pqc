@@ -44,6 +44,7 @@
 // - Upgrade transparente: Clientes antigos continuam funcionando, novos ganham proteção PQC
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
+use serde_json;
 use crate::core::crypto::*;
 use hkdf::Hkdf;
 use rand::Rng;
@@ -589,14 +590,18 @@ impl CryptoProvider for VodoCryptoHybrid {
                             }
                         }
                     }
-                    match message {
-                        vodozemac::olm::OlmMessage::PreKey(m) => m.to_bytes(),
-                        vodozemac::olm::OlmMessage::Normal(m) => m.to_bytes(),
-                    }
+                    // Serializar no formato Matrix: {"type":N,"body":"<base64>"}
+                    let (msg_type, raw_bytes) = match message {
+                        vodozemac::olm::OlmMessage::PreKey(m) => (0u8, m.to_bytes()),
+                        vodozemac::olm::OlmMessage::Normal(m) => (1u8, m.to_bytes()),
+                    };
+                    let body_b64 = B64.encode(&raw_bytes);
+                    format!("{{\"type\":{},\"body\":\"{}\"}}", msg_type, body_b64).into_bytes()
                 }
             }
         } else {
             // Modo clássico puro (vodozemac)
+            // Serializar no formato Matrix: {"type":N,"body":"<base64>"}
             let has_received = session.hybrid_session.has_received_message_classic();
             let message = session.hybrid_session.encrypt_classic(plaintext);
             if verbosity >= 4 {
@@ -610,10 +615,12 @@ impl CryptoProvider for VodoCryptoHybrid {
                     }
                 }
             }
-            match message {
-                vodozemac::olm::OlmMessage::PreKey(m) => m.to_bytes(),
-                vodozemac::olm::OlmMessage::Normal(m) => m.to_bytes(),
-            }
+            let (msg_type, raw_bytes) = match message {
+                vodozemac::olm::OlmMessage::PreKey(m) => (0u8, m.to_bytes()),
+                vodozemac::olm::OlmMessage::Normal(m) => (1u8, m.to_bytes()),
+            };
+            let body_b64 = B64.encode(&raw_bytes);
+            format!("{{\"type\":{},\"body\":\"{}\"}}", msg_type, body_b64).into_bytes()
         }
     }
 
@@ -667,11 +674,26 @@ impl CryptoProvider for VodoCryptoHybrid {
             }
         }
 
-        // PASSO 2: Fallback para mensagem clássica (bytes binários diretos)
-        vlog!(VerbosityLevel::Debug, "[DECRYPT] Tentando decodificar como mensagem clássica (binário)");
+        // PASSO 2: Mensagem clássica em envelope JSON+B64: {"type":0/1,"body":"<base64>"}
+        vlog!(VerbosityLevel::Debug, "[DECRYPT] Tentando decodificar como mensagem clássica (JSON+B64 ou binário)");
+
+        // Desembrulhar envelope JSON se presente (type 0 ou 1)
+        let raw: Vec<u8> = if message.starts_with(b"{") {
+            if let Ok(json_val) = serde_json::from_slice::<serde_json::Value>(message) {
+                if let Some(body_b64) = json_val.get("body").and_then(|b| b.as_str()) {
+                    B64.decode(body_b64).map_err(|_| CryptoError::B64)?
+                } else {
+                    message.to_vec()
+                }
+            } else {
+                message.to_vec()
+            }
+        } else {
+            message.to_vec()
+        };
 
         // Tentar PreKeyMessage
-        if let Ok(pre) = PreKeyMessage::from_bytes(message) {
+        if let Ok(pre) = PreKeyMessage::from_bytes(&raw) {
             let msg = OlmMessage::PreKey(pre);
             match session.hybrid_session.decrypt_classic(&msg) {
                 Ok(plaintext) => return Ok(plaintext),
@@ -683,7 +705,7 @@ impl CryptoProvider for VodoCryptoHybrid {
         }
 
         // Tentar Message normal
-        if let Ok(norm) = Message::from_bytes(message) {
+        if let Ok(norm) = Message::from_bytes(&raw) {
             let msg = OlmMessage::Normal(norm);
             match session.hybrid_session.decrypt_classic(&msg) {
                 Ok(plaintext) => return Ok(plaintext),
