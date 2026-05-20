@@ -12,7 +12,7 @@ impl MatrixRoom {
     /// Rotates only the Megolm sessions of active senders, preserving existing Olm sessions.
     pub(crate) fn rotate_megolm_only(&mut self, reason: String) -> Result<()> {
         let start_time = std::time::Instant::now();
-        vlog!(VerbosityLevel::Verbose, "Rotating Megolm sessions (reason: {})", reason);
+        vlog!(VerbosityLevel::Verbose, "Rotacionando sessões Megolm (motivo: {})", reason);
         
         self.in_rotation_phase = true;
         
@@ -32,7 +32,7 @@ impl MatrixRoom {
         let active_senders: Vec<String> = self.sender_sessions.keys().cloned().collect();
         let member_ids: Vec<String> = self.members.keys().cloned().collect();
         
-        vlog!(VerbosityLevel::Debug, "Multi-sender rotation: {} senders", active_senders.len());
+        vlog!(VerbosityLevel::Debug, "Rotação multi-sender: {} remetentes", active_senders.len());
         
         for sender_id in &active_senders {
             // Create a fresh Megolm outbound session for this sender.
@@ -52,7 +52,7 @@ impl MatrixRoom {
                             batch_encrypted_keys.push((receiver_id.clone(), encrypted_key));
                         }
                         Err(e) => {
-                            vlog!(VerbosityLevel::Debug, "Key encrypt error {} -> {}: {}", sender_id, receiver_id, e);
+                            vlog!(VerbosityLevel::Debug, "Erro ao cifrar chave {} -> {}: {}", sender_id, receiver_id, e);
                         }
                     }
                 }
@@ -68,7 +68,7 @@ impl MatrixRoom {
                         }
                     }
                     Err(e) => {
-                        vlog!(VerbosityLevel::Debug, "Key decrypt error {} -> {}: {}", sender_id, receiver_id, e);
+                        vlog!(VerbosityLevel::Debug, "Erro ao decifrar chave {} -> {}: {}", sender_id, receiver_id, e);
                     }
                 }
             }
@@ -111,13 +111,13 @@ impl MatrixRoom {
                                         if has_peer_key {
                                             if let Some(pending_kem) = inbound_session.hybrid_session.take_pending_kem_ciphertext() {
                                                 olm_pair.pending_kem_for_outbound = Some(pending_kem.clone());
-                                                vlog!(VerbosityLevel::Debug, "Forced ratchet {} <- {}: KEM ({} bytes)", 
+                                                vlog!(VerbosityLevel::Debug, "Ratchet forçado {} <- {}: KEM ({} bytes)", 
                                                      receiver_id, sender_id, pending_kem.len());
                                             }
                                             sessions_forced += 1;
                                         } else {
                                             sessions_lazy += 1;
-                                            vlog!(VerbosityLevel::Debug, "Forced ratchet {} <- {}: no peer key yet", 
+                                            vlog!(VerbosityLevel::Debug, "Ratchet forçado {} <- {}: sem peer key ainda", 
                                                  receiver_id, sender_id);
                                         }
                                     } else {
@@ -125,7 +125,7 @@ impl MatrixRoom {
                                     }
                                 }
                                 Err(e) => {
-                                    vlog!(VerbosityLevel::Debug, "Forced ratchet error {} <- {}: {:?}", 
+                                    vlog!(VerbosityLevel::Debug, "Erro no ratchet forçado {} <- {}: {:?}", 
                                          receiver_id, sender_id, e);
                                 }
                             }
@@ -134,21 +134,21 @@ impl MatrixRoom {
                 }
             }
             
-            vlog!(VerbosityLevel::Debug, "   -  asymmetric advance complete:");
-            vlog!(VerbosityLevel::Debug, "      └─ PQC sessions forced: {} (KEM executed, peer_key established)", sessions_forced);
-            vlog!(VerbosityLevel::Debug, "      └─ PQC sessions lazy: {} (KEM deferred until first use)", sessions_lazy);
-            vlog!(VerbosityLevel::Debug, "      └─ classical sessions: {} (no PQC)", sessions_classical);
+            vlog!(VerbosityLevel::Debug, "   -  avanço assimétrico concluído:");
+            vlog!(VerbosityLevel::Debug, "      └─ Sessões PQC forçadas: {} (KEM executado - peer_key estabelecido)", sessions_forced);
+            vlog!(VerbosityLevel::Debug, "      └─ Sessões PQC lazy: {} (aguardando primeiro uso para KEM)", sessions_lazy);
+            vlog!(VerbosityLevel::Debug, "      └─ Sessões clássicas: {} (sem PQC)", sessions_classical);
             
             self.num_asymmetric_advances += sessions_forced;
             
             if sessions_forced > 0 {
-                vlog!(VerbosityLevel::Normal, "Forced ratchet: {} sessions executed KEM", sessions_forced);
+                vlog!(VerbosityLevel::Normal, "Ratchet forçado: {} sessões executaram KEM", sessions_forced);
             } else if sessions_lazy > 0 {
-                vlog!(VerbosityLevel::Normal, "Forced ratchet inactive: {} sessions without peer key", sessions_lazy);
+                vlog!(VerbosityLevel::Normal, "Ratchet forçado inativo: {} sessões sem peer key", sessions_lazy);
             }
             let _ = sessions_classical;
         } else {
-            vlog!(VerbosityLevel::Debug, "Initial setup: skipping forced ratchet");
+            vlog!(VerbosityLevel::Debug, "Setup inicial: ignorando ratchet forçado");
         }
 
         let elapsed = start_time.elapsed().as_secs_f64() * 1000.0;
@@ -165,7 +165,7 @@ impl MatrixRoom {
     /// Rotates all sessions (Olm + Megolm). Use after membership changes.
     /// For periodic rotations prefer `rotate_megolm_only`.
     pub(crate) fn rotate_all_sessions(&mut self, reason: String) -> Result<()> {
-        vlog!(VerbosityLevel::Verbose, "Rotating all sessions (reason: {})", reason);
+        vlog!(VerbosityLevel::Verbose, "Rotacionando todas as sessões (motivo: {})", reason);
         
         if !self.sender_sessions.is_empty() {
             self.session_history.push(std::mem::take(&mut self.current_session_stats));

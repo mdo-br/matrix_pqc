@@ -70,9 +70,9 @@ pub fn benchmark_room(
         .collect();
 
     if num_active_senders == 1 {
-        vlog!(VerbosityLevel::Verbose, "   - [SINGLE-USER] 1 active sender: {:?}", active_senders);
+        vlog!(VerbosityLevel::Verbose, "   - [SINGLE-USER] 1 remetente ativo: {:?}", active_senders);
     } else {
-        vlog!(VerbosityLevel::Verbose, "   - [MULTI-SENDER] {} active senders: {:?}", num_active_senders, active_senders);
+        vlog!(VerbosityLevel::Verbose, "   - [MULTI-SENDER] {} remetentes ativos: {:?}", num_active_senders, active_senders);
     }
 
     let receiver_id = &members[num_active_senders % member_count];
@@ -81,7 +81,7 @@ pub fn benchmark_room(
     room.create_sessions_for_senders(&active_senders)?;
     let session_setup_ms = start.elapsed().as_secs_f64() * 1000.0;
 
-    vlog!(VerbosityLevel::Verbose, "   - [WARMUP] running bidirectional Olm warmup to establish peer_key");
+    vlog!(VerbosityLevel::Verbose, "   - [WARMUP] executando warm-up bidirecional para estabelecer peer_key");
     room.warmup_olm_sessions_bidirectional()?;
 
     // Seed derived from batch_id + room_type + rotation_policy + pair_id for reproducibility.
@@ -243,7 +243,7 @@ fn benchmark_profile(
         CryptoMode::Hybrid => "Hybrid",
     };
 
-    vlog!(VerbosityLevel::Minimal, "  Benchmarking {} with {} rooms...", mode_name, profile.total_rooms());
+    vlog!(VerbosityLevel::Minimal, "  Benchmarking {} com {} salas...", mode_name, profile.total_rooms());
 
     let mut room_benchmarks = Vec::new();
     let mut total_setup_ms = 0.0;
@@ -251,7 +251,7 @@ fn benchmark_profile(
     let mut total_decrypt_ms = 0.0;
 
     for (i, (room_id, room_type)) in profile.rooms.iter().enumerate() {
-        vlog!(VerbosityLevel::Normal, "    Room {}/{}: {} ({} members)",
+        vlog!(VerbosityLevel::Normal, "    Sala {}/{}: {} ({} membros)",
               i + 1, profile.total_rooms(),
               room_type.name(), room_type.member_count());
 
@@ -293,17 +293,17 @@ pub fn run_paired_benchmark(
     repetitions: usize,
     rotation_policy: Option<RotationPolicy>,
 ) -> Result<Vec<PairedRun>> {
-    progress!("\n=== Paired User Profile Benchmark ===\n");
+    progress!("\n=== Benchmark Pareado de Perfil de Usuário ===\n");
 
     let profile = UserProfile::typical(user_id);
     let batch_id = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
     let policy = rotation_policy.unwrap_or(RotationPolicy::Balanced);
 
-    vlog!(VerbosityLevel::Minimal, "Profile: {}", profile.user_id);
-    vlog!(VerbosityLevel::Minimal, "  Rooms: {}", profile.total_rooms());
-    vlog!(VerbosityLevel::Minimal, "  Olm sessions: {}", profile.total_olm_sessions());
-    vlog!(VerbosityLevel::Minimal, "  Repetitions: {} Classical↔Hybrid pairs", repetitions);
-    vlog!(VerbosityLevel::Minimal, "  Rotation policy: {:?}\n", policy);
+    vlog!(VerbosityLevel::Minimal, "Perfil: {}", profile.user_id);
+    vlog!(VerbosityLevel::Minimal, "  Salas: {}", profile.total_rooms());
+    vlog!(VerbosityLevel::Minimal, "  Sessões Olm: {}", profile.total_olm_sessions());
+    vlog!(VerbosityLevel::Minimal, "  Repetições: {} pares Classical↔Hybrid", repetitions);
+    vlog!(VerbosityLevel::Minimal, "  Política de rotação: {:?}\n", policy);
 
     let mut all_runs = Vec::new();
 
@@ -319,7 +319,7 @@ pub fn run_paired_benchmark(
         let first_name = if first_repeat == 0 { "Classical" } else { "Hybrid" };
         let second_name = if second_repeat == 0 { "Classical" } else { "Hybrid" };
 
-        progress!("Pair {}/{} (order: {} → {})",
+        progress!("Par {}/{} (ordem: {} → {})",
                  pair_idx + 1, repetitions, first_name, second_name);
 
         let first = benchmark_profile(&batch_id, &pair_id, first_repeat, &profile, first_mode, policy)?;
@@ -474,8 +474,8 @@ pub fn save_paired_runs_csv(runs: &[PairedRun], filename: &str) -> Result<()> {
     }
 
     wtr.flush()?;
-    progress!(" Paired data (long/tidy) saved: {}", filename);
-    progress!("  (format: one row per room per repetition)");
-    progress!("  (analysis: python scripts/analyze.py {})", filename);
+    progress!(" Dados pareados (long/tidy) salvos: {}", filename);
+    progress!("  (formato: cada linha = uma sala em uma repetição)");
+    progress!("  (análise: python scripts/analyze.py {})", filename);
     Ok(())
 }

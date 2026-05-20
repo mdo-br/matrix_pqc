@@ -25,7 +25,7 @@ impl MatrixRoom {
         if let Some(pending_kem) = olm_session_pair.pending_kem_for_outbound.take() {
             if let Some(ref mut olm_session) = olm_session_pair.outbound {
                 olm_session.hybrid_session.set_pending_kem_ciphertext(pending_kem.clone());
-                vlog!(VerbosityLevel::Debug, "       [ENCRYPT] {} -> {}: using shared KEM from inbound ({} bytes)", 
+                vlog!(VerbosityLevel::Debug, "       [ENCRYPT] {} -> {}: usando KEM compartilhado do INBOUND ({} bytes)", 
                      sender_id, receiver_id, pending_kem.len());
             }
         }
@@ -48,7 +48,7 @@ impl MatrixRoom {
             self.num_asymmetric_advances += (asymmetric_after - asymmetric_before) as usize;
         }
         
-        vlog!(VerbosityLevel::Debug, "       [ENCRYPT] room={}, {} -> {}, size={} bytes, setup={}, mode={:?}", 
+        vlog!(VerbosityLevel::Debug, "       [ENCRYPT] sala={}, {} -> {}, tamanho={} bytes, setup={}, modo={:?}", 
                  self.room_id, sender_id, receiver_id, encrypted_key.len(), self.in_setup_phase, self.crypto_mode);
         
         // Track bandwidth by phase: type 0/1 = classical Olm, type 2 = hybrid PQC Olm.
@@ -313,11 +313,11 @@ impl MatrixRoom {
             return (encrypted_message.len(), 0);
         }
         
-        vlog!(VerbosityLevel::Debug, "         └─[EXTRACT] analyzing message of {} bytes", encrypted_message.len());
+        vlog!(VerbosityLevel::Debug, "         └─[EXTRACT] analisando mensagem de {} bytes", encrypted_message.len());
         
         if let Ok(json_val) = serde_json::from_slice::<serde_json::Value>(encrypted_message) {
             if let Some(msg_type) = json_val.get("type").and_then(|t| t.as_u64()) {
-                vlog!(VerbosityLevel::Debug, "            ├─ JSON type: {}", msg_type);
+                vlog!(VerbosityLevel::Debug, "            ├─ Tipo JSON: {}", msg_type);
                 if let Some(body) = json_val.get("body").and_then(|b| b.as_str()) {
                     if let Ok(decoded_bytes) = B64.decode(body) {
                         // Wire format (type 2): [1B version][1B classic_type][4B classic_len]
@@ -326,17 +326,17 @@ impl MatrixRoom {
                         if msg_type == 2 && decoded_bytes.len() >= 19 {
                             let mut offset = 0;
                             
-                            vlog!(VerbosityLevel::Debug, "            ├─ [PARSE] Total decoded: {} bytes", decoded_bytes.len());
+                            vlog!(VerbosityLevel::Debug, "            ├─ [PARSE] Total decodificado: {} bytes", decoded_bytes.len());
                             
                             // 1. Version (1B)
                             let version = decoded_bytes[offset];
                             offset += 1;
-                            vlog!(VerbosityLevel::Debug, "            ├─ [PARSE] Version: {}", version);
+                            vlog!(VerbosityLevel::Debug, "            ├─ [PARSE] Versão: {}", version);
                             
                             // 2. Classic type (1B)
                             let classic_type = decoded_bytes[offset];
                             offset += 1;
-                            vlog!(VerbosityLevel::Debug, "            ├─ [PARSE] Classic type: {}", classic_type);
+                            vlog!(VerbosityLevel::Debug, "            ├─ [PARSE] Tipo clássico: {}", classic_type);
                             
                             // 3. Classic length (4B)
                             if decoded_bytes.len() < offset + 4 {
@@ -348,12 +348,12 @@ impl MatrixRoom {
                                 decoded_bytes[offset + 2],
                                 decoded_bytes[offset + 3],
                             ]) as usize;
-                            vlog!(VerbosityLevel::Debug, "            ├─ [PARSE] Classic len: {} bytes (offset {})", classic_len, offset);
+                            vlog!(VerbosityLevel::Debug, "            ├─ [PARSE] Tamanho clássico: {} bytes (offset {})", classic_len, offset);
                             offset += 4;
                             
                             // 4. Classic bytes
                             if decoded_bytes.len() < offset + classic_len {
-                                vlog!(VerbosityLevel::Debug, "            └─ [PARSE] insufficient bytes for classic payload");
+                                vlog!(VerbosityLevel::Debug, "            └─ [PARSE] bytes insuficientes para payload clássico");
                                 return (decoded_bytes.len(), 0);
                             }
                             let classical_bytes = classic_len;
@@ -361,7 +361,7 @@ impl MatrixRoom {
                             
                             // 5. Message index (4B) + pqc_enabled (1B)
                             if decoded_bytes.len() < offset + 5 {
-                                vlog!(VerbosityLevel::Debug, "            └─ [PARSE] insufficient bytes for msg_index+pqc_enabled");
+                                vlog!(VerbosityLevel::Debug, "            └─ [PARSE] bytes insuficientes para msg_index+pqc_enabled");
                                 return (classical_bytes, 0);
                             }
                             offset += 5;
@@ -369,7 +369,7 @@ impl MatrixRoom {
                             // 6. Remainder is the PQC component (ratchet key + KEM CT).
                             let pqc_bytes = decoded_bytes.len().saturating_sub(offset);
                             
-                            vlog!(VerbosityLevel::Debug, "         └─[BREAKDOWN] total={} B, classical={} B, pqc={} B",
+                            vlog!(VerbosityLevel::Debug, "         └─[BREAKDOWN] total={} B, clássico={} B, pqc={} B",
                                  decoded_bytes.len(), classical_bytes, pqc_bytes);
                             
                             return (classical_bytes, pqc_bytes);
@@ -386,7 +386,7 @@ impl MatrixRoom {
         if encrypted_message.len() > 1500 {
             let estimated_classical = 500;
             let estimated_pqc = encrypted_message.len().saturating_sub(estimated_classical);
-            vlog!(VerbosityLevel::Debug, "         └─[BREAKDOWN HEURISTIC] classical ~{} B, pqc ~{} B", 
+            vlog!(VerbosityLevel::Debug, "         └─[BREAKDOWN HEURÍSTICO] clássico ~{} B, pqc ~{} B", 
                  estimated_classical, estimated_pqc);
             (estimated_classical, estimated_pqc)
         } else {
