@@ -1,8 +1,6 @@
-// Biblioteca Matrix PQC CRYSTALS-Kyber (Round 3)
+// Matrix PQC library — CRYSTALS-Kyber Round 3 (pqcrypto-kyber 0.8).
 //
-// CRYSTALS-Kyber Round 3 (pqcrypto-kyber 0.8)
-//
-// Expõe módulos públicos para testes de integração
+// Exposes public modules for integration tests.
 
 pub mod utils {
     pub mod logging;
@@ -40,7 +38,7 @@ pub mod core {
 // Protocolos Matrix
 pub mod protocols;
 
-// Re-exportar módulos internos
+// Re-export internal modules.
 #[path = "core/crypto.rs"]
 mod crypto;
 

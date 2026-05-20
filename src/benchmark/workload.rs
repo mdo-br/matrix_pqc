@@ -1,42 +1,37 @@
-//! Módulo de workload realista para simulação de cenários Matrix
+//! Realistic workload generator for Matrix scenario simulations.
 //!
-//! Implementa workloads baseados em estudos acadêmicos sobre aplicações
-//! de mensagens instantâneas (WhatsApp, Telegram, WeChat, etc).
-//!
-//! # Fundamentos Acadêmicos
-//!
-//! Implementações baseadas em:
+//! Message type distributions and traffic patterns are derived from
+//! empirical studies of instant messaging applications:
 //!
 //! 1. Seufert et al. (2023) - "Share and Multiply: Modeling Communication 
 //!    and Generated Traffic in Private WhatsApp Groups".
 //!    DOI: https://doi.org/10.1109/ACCESS.2023.3254913
-//!    - Dataset: 76M mensagens de 117K usuários
-//!    - Análise de grupos privados e padrões multiplicativos
+//!    - Analyse private groups and multiplicative patterns 
 //!
 //! 2. Seufert et al. (2015) - "Analysis of Group-Based Communication in WhatsApp"
 //!    DOI: https://doi.org/10.1007/978-3-319-26925-2_17
-//!    - Caracterização empírica de chats em grupo
-//!    - Modelagem com processo semi-Markov
+//!    - Empirical characterization of group chats 
+//!    - Modeling with semi-Markov process
 //!
 //! 3. Keshvadi et al. (2020) - "Traffic Characterization of 
 //!    Instant Messaging Apps: A Campus-Level View"
 //!    DOI: https://doi.org/10.1109/LCN48667.2020.9314799
-//!    - Análise de Facebook Messenger, WeChat, Snapchat
-//!    - Padrões diurnos com picos de rajada
+//!    - Analysis of Facebook Messenger, WeChat, Snapchat
+//!    - Diurnal patterns with burst peaks
 //!
 //! 4. Rammos et al. (2021) - "The Impact of Instant Messaging on the 
 //!    Energy Consumption of Android Devices"
 //!    DOI: https://doi.org/10.1109/MobileSoft52590.2021.00007
-//!    - Estudo empírico WhatsApp/Telegram
-//!    - Modo burst vs. regular (10 msg/min vs. 50 msg/min)
+//!    - Empirical study of WhatsApp/Telegram
+//!    - Burst vs. regular mode (10 msg/min vs. 50 msg/min)
 //!
-//! # Parâmetros Realistas
+//! # Realistic Parameters
 //!
-//! - Distribuição de tipos de mensagem baseada em observações empíricas
-//! - Padrões de tráfego temporal (constante, rajada, periódico, realista)
-//! - Cenários de uso diferenciados (chat pequeno, grupo médio, canal grande)
-//! - Rotação de chaves baseada em cenários de uso real Matrix/Element
-//! - Tamanhos de mensagem realistas para texto, imagem, arquivo e voz
+//! - Message type distribution based on empirical observations
+//! - Temporal traffic patterns (constant, burst, periodic, realistic)
+//! - Different usage scenarios (small chat, medium group, large channel)
+//! - Key rotation based on real-world usage scenarios Matrix/Element
+//! - Realistic message sizes for text, images, files and voice
 
 #![allow(dead_code)]
 
@@ -44,82 +39,45 @@
 use rand::Rng;
 use std::time::Duration;
 
-/// Tipos de mensagens simuladas no experimento
-///
-/// Baseado em estudos empíricos sobre distribuição de conteúdo
-/// em aplicativos de mensagens instantâneas.
+/// Message types simulated in the experiment.
 #[derive(Debug, Clone, PartialEq)]
 pub enum MessageType {
-    /// Mensagem textual (70-90% do tráfego)
     Text(String),
-    /// Imagem compartilhada (5-25% do tráfego)
     Image(Vec<u8>),
-    /// Arquivo anexado (5-10% do tráfego)
     File(Vec<u8>),
-    /// Mensagem de sistema/notificação (1-5% do tráfego)
     System(String),
-    /// Mensagem de voz (1-5% do tráfego)
     Voice(Vec<u8>),
 }
 
-/// Padrões de tráfego para simular comportamentos de envio
-///
-/// Implementados conforme literatura sobre análise de tráfego
-/// de mensageiros instantâneos (Keshvadi et al., Rammos et al.).
+/// Traffic patterns for simulating message sending behaviour.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TrafficPattern {
-    /// Tráfego constante com intervalos regulares
-    /// Uso: testes de baseline, traffic sintético
+    /// Steady traffic at regular intervals.
     Constant,
-    
-    /// Picos de atividade (burst mode)
-    /// Baseado em Rammos et al. (2021): 50 msg/min com pausas
-    /// Uso: simular conversas intensas, sharestorms
+    /// Short activity bursts followed by silence (Rammos et al. 2021: 50 msg/min).
     Burst,
-    
-    /// Atividade periódica (heartbeat, notificações)
-    /// Uso: canais de sistema, bots
+    /// Periodic heartbeat (system channels, bots).
     Periodic,
-    
-    /// Tráfego aleatório com distribuição uniforme
-    /// Uso: testes de robustez
+    /// Uniformly random inter-arrival times.
     Random,
-    
-    /// Combinação de padrões reais
-    /// Baseado em observações empíricas de uso real
-    /// Uso: experimentos realistas
+    /// Combination of burst and regular patterns based on empirical observations.
     Realistic,
 }
 
-/// Cenários de uso para diferentes tipos de salas/canais Matrix
-///
-/// Parametrização baseada em estudos de grupos WhatsApp
-/// (Seufert et al. 2015, 2023) e Matrix Element usage patterns.
+/// Room types used to parameterise workload scenarios.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum UsageScenario {
-    /// Sala pequena: chat P2P ou grupo pequeno (2-10 usuários)
-    /// ~100 mensagens típicas, rotação a cada 100 msgs
-    /// Distribuição: 85% texto, 12% imagem, 3% voz
+    /// Small chat: P2P or small group (2–10 users), ~100 messages, rotation every 100 msgs.
     SmallChat,
-    
-    /// Grupo médio: 20-50 usuários
-    /// ~250 mensagens típicas, rotação a cada 250 msgs
-    /// Distribuição: 70% texto, 25% imagem, 5% arquivo
+    /// Medium group: 20–50 users, ~250 messages, rotation every 250 msgs.
     MediumGroup,
-    
-    /// Canal grande: 100+ usuários
-    /// ~250 mensagens típicas, rotação a cada 250 msgs
-    /// Distribuição: 75% texto, 15% imagem, 10% arquivo
+    /// Large channel: 100+ users, ~500 messages, rotation every 500 msgs.
     LargeChannel,
-    
-    /// Canal de sistema: notificações, logs
-    /// ~1000 mensagens típicas, rotação a cada 1000 msgs
-    /// Distribuição: 90% sistema, 10% texto
+    /// System channel: notifications/logs, ~1000 messages, rotation every 1000 msgs.
     SystemChannel,
 }
 
 impl UsageScenario {
-    /// Retorna número típico de mensagens para este cenário
     pub fn typical_message_count(&self) -> usize {
         match self {
             UsageScenario::SmallChat => 100,
@@ -129,34 +87,26 @@ impl UsageScenario {
         }
     }
     
-    /// Retorna intervalo de rotação de chaves Megolm (em número de mensagens)
-    /// Configurado para ter múltiplas rotações e medir overhead da catraca assimétrica
-    /// ATUALIZADO: Distribuição balanceada das 3 políticas (Paranoid/Balanced/Relaxed)
     pub fn rotation_interval(&self) -> usize {
         match self {
-            UsageScenario::SmallChat => 50,       // 100 msgs → 2 rotações (Paranoid ≤50)
-            UsageScenario::MediumGroup => 100,    // 250 msgs → 2 rotações (Balanced ≤100)
-            UsageScenario::LargeChannel => 250,   // 500 msgs → 2 rotações (Relaxed >100)
-            UsageScenario::SystemChannel => 250,  // 1000 msgs → 4 rotações (Relaxed >100)
+            UsageScenario::SmallChat => 50,
+            UsageScenario::MediumGroup => 100,
+            UsageScenario::LargeChannel => 250,
+            UsageScenario::SystemChannel => 250,
         }
     }
 }
 
-/// Configuração de workload para um experimento
+/// Workload configuration for a single experiment run.
 #[derive(Debug, Clone)]
 pub struct WorkloadConfig {
-    /// Cenário de uso a ser simulado
     pub scenario: UsageScenario,
-    /// Padrão de tráfego a ser utilizado
     pub pattern: TrafficPattern,
-    /// Número total de mensagens a serem geradas
     pub message_count: usize,
-    /// Intervalo de rotação de chaves Megolm (em mensagens)
     pub rotation_interval: usize,
 }
 
 impl WorkloadConfig {
-    /// Cria nova configuração com valores padrão para o cenário
     pub fn new(scenario: UsageScenario, pattern: TrafficPattern) -> Self {
         Self {
             scenario,
@@ -166,61 +116,39 @@ impl WorkloadConfig {
         }
     }
     
-    /// Cria configuração customizada
     pub fn custom(
         scenario: UsageScenario,
         pattern: TrafficPattern,
         message_count: usize,
         rotation_interval: usize,
     ) -> Self {
-        Self {
-            scenario,
-            pattern,
-            message_count,
-            rotation_interval,
-        }
+        Self { scenario, pattern, message_count, rotation_interval }
     }
 }
 
-/// Gerador de mensagens realistas baseado em cenário
-///
-/// Implementa distribuições de tipos de mensagem conforme
-/// estudos empíricos de WhatsApp, WeChat e Matrix.
+/// Generates realistic Matrix messages for a given usage scenario.
 pub struct MessageGenerator {
     scenario: UsageScenario,
     rng: rand::rngs::StdRng,
 }
 
 impl MessageGenerator {
-    /// Cria novo gerador para um cenário específico com seed aleatória
     pub fn new(scenario: UsageScenario) -> Self {
         use rand::SeedableRng;
-        Self {
-            scenario,
-            rng: rand::rngs::StdRng::from_entropy(),
-        }
+        Self { scenario, rng: rand::rngs::StdRng::from_entropy() }
     }
     
-    /// Cria novo gerador com seed fixa (para reprodutibilidade)
     pub fn new_with_seed(scenario: UsageScenario, seed: u64) -> Self {
         use rand::SeedableRng;
-        Self {
-            scenario,
-            rng: rand::rngs::StdRng::seed_from_u64(seed),
-        }
+        Self { scenario, rng: rand::rngs::StdRng::seed_from_u64(seed) }
     }
     
-    /// Gera uma mensagem realista baseada no cenário
-    ///
-    /// A distribuição dos tipos de mensagem depende do cenário,
-    /// baseada em estudos empíricos (Seufert et al., Deng et al.).
+    /// Generates a message whose type is sampled from the scenario's empirical distribution.
     pub fn generate_message(&mut self) -> MessageType {
         let rand_val: f64 = self.rng.gen_range(0.0..1.0);
         
         match self.scenario {
             UsageScenario::SmallChat => {
-                // Chat P2P/pequenos grupos: alta proporção de texto
-                // Seufert et al. (2015): grupos pequenos ~85% texto
                 if rand_val < 0.85 {
                     MessageType::Text(self.generate_text_message())
                 } else if rand_val < 0.97 {
@@ -231,8 +159,6 @@ impl MessageGenerator {
             }
             
             UsageScenario::MediumGroup => {
-                // Grupos médios: mais compartilhamento de mídia
-                // Distribuição: 70% texto, 25% imagem, 5% arquivo
                 if rand_val < 0.70 {
                     MessageType::Text(self.generate_text_message())
                 } else if rand_val < 0.95 {
@@ -243,8 +169,6 @@ impl MessageGenerator {
             }
             
             UsageScenario::LargeChannel => {
-                // Canais grandes: mix equilibrado
-                // Distribuição: 75% texto, 15% imagem, 10% arquivo
                 if rand_val < 0.75 {
                     MessageType::Text(self.generate_text_message())
                 } else if rand_val < 0.90 {
@@ -255,8 +179,6 @@ impl MessageGenerator {
             }
             
             UsageScenario::SystemChannel => {
-                // Canais de sistema: predominância de notificações
-                // Distribuição: 90% sistema, 10% texto
                 if rand_val < 0.90 {
                     MessageType::System(self.generate_system_message())
                 } else {
@@ -266,37 +188,37 @@ impl MessageGenerator {
         }
     }
     
-    /// Gera conteúdo de mensagem de texto (50-500 bytes)
+    /// Generates text message content (50–500 bytes).
     fn generate_text_message(&mut self) -> String {
         let size = self.rng.gen_range(50..500);
         "A".repeat(size)
     }
     
-    /// Gera conteúdo de imagem (10KB-500KB)
+    /// Generates image message content (10 KB–500 KB).
     fn generate_image_message(&mut self) -> Vec<u8> {
         let size = self.rng.gen_range(10_000..500_000);
         vec![0u8; size]
     }
     
-    /// Gera conteúdo de arquivo (100KB-5MB)
+    /// Generates file message content (100 KB–5 MB).
     fn generate_file_message(&mut self) -> Vec<u8> {
         let size = self.rng.gen_range(100_000..5_000_000);
         vec![0u8; size]
     }
     
-    /// Gera conteúdo de voz (10KB-200KB)
+    /// Generates voice message content (10 KB–200 KB).
     fn generate_voice_message(&mut self) -> Vec<u8> {
         let size = self.rng.gen_range(10_000..200_000);
         vec![0u8; size]
     }
     
-    /// Gera mensagem de sistema (20-100 bytes)
+    /// Generates a system message (20–100 bytes).
     fn generate_system_message(&mut self) -> String {
         let size = self.rng.gen_range(20..100);
         format!("[SYSTEM] {}", "X".repeat(size))
     }
     
-    /// Converte mensagem para bytes (para cifra)
+    /// Converts a message to its raw byte representation.
     pub fn message_to_bytes(&self, msg: &MessageType) -> Vec<u8> {
         match msg {
             MessageType::Text(s) => s.as_bytes().to_vec(),
@@ -308,10 +230,9 @@ impl MessageGenerator {
     }
 }
 
-/// Gerador de padrões de tráfego temporal
+/// Generates inter-message timing intervals for a given traffic pattern.
 ///
-/// Implementa diferentes padrões baseados em estudos de
-/// traffic characterization (Keshvadi et al., Rammos et al.).
+/// Implements traffic models from Keshvadi et al. and Rammos et al.
 pub struct TrafficGenerator {
     pattern: TrafficPattern,
     message_count: usize,
@@ -320,7 +241,7 @@ pub struct TrafficGenerator {
 }
 
 impl TrafficGenerator {
-    /// Cria novo gerador de tráfego
+    /// Creates a new traffic generator for the given pattern and total message count.
     pub fn new(pattern: TrafficPattern, message_count: usize) -> Self {
         Self {
             pattern,
@@ -330,9 +251,7 @@ impl TrafficGenerator {
         }
     }
     
-    /// Retorna próximo intervalo de tempo até enviar mensagem
-    ///
-    /// Retorna `None` quando todas as mensagens foram geradas.
+    /// Returns the next inter-message interval, or `None` when all messages have been generated.
     pub fn next_interval(&mut self) -> Option<Duration> {
         if self.current_index >= self.message_count {
             return None;
@@ -342,22 +261,20 @@ impl TrafficGenerator {
         
         let interval_ms = match self.pattern {
             TrafficPattern::Constant => {
-                // Intervalo fixo: 100ms entre mensagens
                 100
             }
             
             TrafficPattern::Burst => {
-                // Burst mode (Rammos et al. 2021): 50 msg/min = 1200ms/msg
-                // Mas em rajadas: 50ms durante burst, pausa 500ms a cada 50 msgs
+                // Burst mode (Rammos et al. 2021): rapid sends within bursts, pause every 50 messages.
                 if self.current_index % 50 == 0 {
-                    500 // Pausa entre bursts
+                    500 // inter-burst pause
                 } else {
-                    20  // Rápido dentro do burst
+                    20  // intra-burst
                 }
             }
             
             TrafficPattern::Periodic => {
-                // Padrão periódico: alternância 50ms / 200ms
+                // Periodic Pattern: 50ms / 200ms
                 if self.current_index % 2 == 0 {
                     50
                 } else {
@@ -366,12 +283,11 @@ impl TrafficGenerator {
             }
             
             TrafficPattern::Random => {
-                // Intervalo aleatório: 10-500ms
                 self.rng.gen_range(10..500)
             }
             
             TrafficPattern::Realistic => {
-                // Mix de padrões: 70% constante, 20% burst, 10% pausa longa
+                // Mix: 70% constant, 20% burst, 10% long pause.
                 let rand_val: f64 = self.rng.gen_range(0.0..1.0);
                 if rand_val < 0.70 {
                     100  // Constante
@@ -386,12 +302,12 @@ impl TrafficGenerator {
         Some(Duration::from_millis(interval_ms))
     }
     
-    /// Retorna se ainda há mensagens a serem geradas
+    /// Returns `true` if there are more messages to generate.
     pub fn has_next(&self) -> bool {
         self.current_index < self.message_count
     }
     
-    /// Retorna progresso atual (0.0 a 1.0)
+    /// Returns generation progress in [0.0, 1.0].
     pub fn progress(&self) -> f64 {
         self.current_index as f64 / self.message_count as f64
     }

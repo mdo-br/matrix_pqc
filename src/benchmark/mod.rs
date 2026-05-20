@@ -1,7 +1,7 @@
-// Módulo de benchmark de desempenho PQC
+// PQC performance benchmark module.
 //
-// Unifica a orquestração de experimentos (antes em demos/) e as
-// distribuições de carga de trabalho (antes em tools/).
+// Consolidates experiment orchestration (formerly in demos/) and workload
+// distributions (formerly in tools/).
 
 pub mod metrics;
 pub mod runner;

@@ -1,52 +1,35 @@
-// Tipos e Interfaces Criptográficas Core
+// Core cryptographic types and traits.
 //
-// Define tipos fundamentais, traits e enums para implementações
-// criptográficas híbridas PQC + clássicas no contexto Matrix.
-//
-// Suporta:
-// - Algoritmos clássicos: X25519, Ed25519, AES-256-CBC (vodozemac)
-// - Algoritmos pós-quânticos: CRYSTALS-Kyber Round 3 (512, 768, 1024)
-// - Double Ratchet híbrido com ratcheting KEM
-// - Compatibilidade total com vodozemac 0.9.0
+// Defines fundamental types, traits, and enums shared by all crypto provider
+// implementations (classical and hybrid PQC).
 
 use anyhow::Result;
 use serde::{Serialize, Deserialize};
 
-/// Variantes do CRYSTALS-Kyber (Round 3) disponíveis
-
+/// CRYSTALS-Kyber (Round 3) security parameter variants.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum KemAlgorithm {
-    /// Kyber-512 - NIST Level 1
-    /// Segurança quântica: 128 bits
-    /// Uso: Dispositivos com recursos limitados
+    /// Kyber-512 — NIST Level 1 (128-bit quantum security).
     Kyber512,
-    
-    /// Kyber-768 - NIST Level 3
-    /// Segurança quântica: 192 bits
-    /// Uso: Configuração balanceada (recomendado)
+    /// Kyber-768 — NIST Level 3 (192-bit quantum security). Recommended default.
     Kyber768,
-    
-    /// Kyber-1024 - NIST Level 5
-    /// Segurança quântica: 256 bits
-    /// Uso: Máxima segurança
+    /// Kyber-1024 — NIST Level 5 (256-bit quantum security).
     Kyber1024,
 }
 
 impl KemAlgorithm {
-    /// Retorna nome legível do algoritmo
     pub fn name(&self) -> &'static str {
         match self {
             KemAlgorithm::Kyber512 => "Kyber-512",
-            KemAlgorithm::Kyber768 => "Kyber-768", 
+            KemAlgorithm::Kyber768 => "Kyber-768",
             KemAlgorithm::Kyber1024 => "Kyber-1024",
         }
     }
 }
 
-/// Métodos de diagnóstico — API pública sem consumidores internos
+/// Diagnostic methods — public API without internal consumers.
 #[allow(dead_code)]
 impl KemAlgorithm {
-    /// Nível de segurança quântica em bits
     pub fn security_level(&self) -> u16 {
         match self {
             KemAlgorithm::Kyber512 => 128,
@@ -56,25 +39,14 @@ impl KemAlgorithm {
     }
 }
 
-/// Escolha de algoritmo KEM para configuração de provedores
-/// 
-/// Define qual variante do Kyber será usada no Double Ratchet após
-/// o handshake PQXDH (que sempre usa Kyber-1024).
+/// KEM variant selector for provider configuration.
+///
+/// Chooses the Kyber variant used in the Double Ratchet PQC.
+/// The PQXDH handshake always uses Kyber-1024 regardless of this setting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KemChoice {
-    /// Kyber-512: Performance otimizada
-    /// - Chave pública: ~800 bytes
-    /// - Ciphertext: ~768 bytes
     Kyber512,
-    
-    /// Kyber-768: Balanceamento ideal (padrão)
-    /// - Chave pública: ~1200 bytes
-    /// - Ciphertext: ~1088 bytes
     Kyber768,
-    
-    /// Kyber-1024: Máxima segurança
-    /// - Chave pública: ~1600 bytes
-    /// - Ciphertext: ~1568 bytes
     Kyber1024,
 }
 
@@ -98,327 +70,159 @@ impl From<KemAlgorithm> for KemChoice {
     }
 }
 
-/// Chaves de identidade exportadas para upload no servidor Matrix
-/// 
-/// Esta estrutura representa o bundle de chaves que é enviado para o servidor
-/// Matrix durante o registro da conta, permitindo que outros usuários iniciem
-/// Chaves de identidade exportadas para servidor Matrix
+/// Identity key bundle exported for upload to the Matrix homeserver.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IdentityKeysExport {
-    /// Chave pública Curve25519 para ECDH
+    /// Curve25519 public key for X3DH/ECDH.
     pub curve25519: String,
-    
-    /// Chave pública Ed25519 para assinaturas
+    /// Ed25519 public key for identity signatures.
     pub ed25519: String,
-    
-    /// Chave KEM (apenas modo híbrido)
-    /// None = modo clássico, Some = PQXDH disponível
+    /// KEM public key (hybrid mode only; `None` for classical).
     pub kem_pub_opt: Option<String>,
 }
 
-/// Chave one-time exportada (consumida uma vez por sessão)
+/// One-time key exported for upload to the Matrix homeserver.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OneTimeKeyExport {
-    /// ID único para rastreamento
     pub key_id: String,
-    
-    /// Chave pública X25519 efêmera
     pub curve25519: String,
 }
 
-/// Handle de sessão Olm com capacidades híbridas
-/// 
-/// Encapsula vodozemac Session + Double Ratchet PQC opcional.
-/// A flag `pqc_enabled` determina qual modo está ativo.
+/// Olm session handle with optional PQC Double Ratchet.
+///
+/// Wraps a `HybridOlmSession` and tracks whether PQC mode is active.
 pub struct OlmSessionHandle {
-    /// Wrapper híbrido sobre vodozemac Session
     pub hybrid_session: crate::core::double_ratchet_pqc::HybridOlmSession,
-    
-    /// Modo PQC ativo (true) ou clássico (false)
     pub pqc_enabled: bool,
-    
-    /// Algoritmo KEM em uso (quando pqc_enabled = true)
     #[allow(dead_code)]
     pub kem_algorithm: Option<crate::core::crypto::KemAlgorithm>,
 }
 
 impl OlmSessionHandle {
-    /// Verifica se o modo PQC está habilitado
     pub fn is_pqc_enabled(&self) -> bool {
         self.pqc_enabled
     }
-    
-    /// Obtém número de avanços do Double Ratchet (rotações assimétricas)
-    /// Retorna 0 se PQC não estiver habilitado
+
+    /// Returns the number of PQC ratchet advances (asymmetric rotations).
     pub fn get_ratchet_advances(&self) -> u32 {
         if self.pqc_enabled {
             let stats = self.hybrid_session.get_session_stats();
             stats.ratchet_stats.map(|s| s.ratchet_advances).unwrap_or(0)
         } else {
-            0  // Classical não usa Double Ratchet PQC
+            0
         }
     }
-    
-    /// Obtém número de avanços assimétricos (apenas mudanças de direção)
-    /// Retorna 0 se PQC não estiver habilitado
+
+    /// Returns the number of asymmetric (direction-change) ratchet steps.
     pub fn get_asymmetric_advances(&self) -> u32 {
         if self.pqc_enabled {
             let stats = self.hybrid_session.get_session_stats();
             stats.ratchet_stats.map(|s| s.asymmetric_advances).unwrap_or(0)
         } else {
-            0  // Classical não usa Double Ratchet PQC
+            0
         }
     }
-    
-    /// Força avanço assimétrico do Double Ratchet PQC
-    /// 
-    /// Gera novas chaves Kyber e força que a próxima mensagem realize acordo KEM.
-    /// Usado durante rotações Megolm para garantir forward secrecy PQC.
-    /// 
-    /// Se PQC não estiver habilitado, não faz nada (compatibilidade com clássico).
+
+    /// Forces an asymmetric PQC ratchet step, generating fresh Kyber keys.
+    /// Used before Megolm key rotation to advance PQC forward secrecy.
+    /// No-op when PQC is disabled.
     pub fn force_asymmetric_ratchet_advance(&mut self) -> Result<(), CryptoError> {
         if self.pqc_enabled {
             self.hybrid_session.force_asymmetric_ratchet_advance()
         } else {
-            Ok(()) // Classical não tem ratchet PQC - noop
+            Ok(())
         }
     }
-    
-    /// Verifica se a sessão PQC tem peer_key definida (sessão já foi usada)
-    /// 
-    /// Retorna true se a sessão já trocou mensagens e tem their_ratchet_key.
-    /// Retorna false para sessões "lazy" (nunca usadas) ou sem PQC habilitado.
-    /// 
-    /// Útil para determinar se forced_ratchet pode executar KEM imediatamente
-    /// ou se deve aguardar o primeiro uso da sessão.
+
+    /// Returns `true` if the session has a peer PQC ratchet key established.
     pub fn has_peer_key(&self) -> bool {
         if self.pqc_enabled {
             self.hybrid_session.has_peer_key()
         } else {
-            false // Classical não tem conceito de peer_key PQC
+            false
         }
     }
-    
-    /// Verifica se a sessão vodozemac subjacente já recebeu mensagem do peer
-    /// 
-    /// Retorna true se a sessão já descriptografou pelo menos uma mensagem.
-    /// Útil para verificar se a sessão está pronta para operações que dependem
-    /// de ter estabelecido comunicação bidirecional.
+
+    /// Returns `true` if the underlying vodozemac session has decrypted at least one message.
     pub fn has_received_message_classic(&self) -> bool {
         self.hybrid_session.has_received_message_classic()
     }
 }
 
-/// Sessão Megolm outbound (envio em grupo)
+/// Megolm outbound group session.
 pub struct MegolmOutbound {
     pub inner: vodozemac::megolm::GroupSession,
 }
 
-/// Sessão Megolm inbound (recebimento em grupo)
+/// Megolm inbound group session.
 pub struct MegolmInbound {
     pub inner: vodozemac::megolm::InboundGroupSession,
 }
 
-/// Estatísticas de acordo de chaves PQXDH
+/// Timing and size statistics for a single PQXDH key agreement.
 #[derive(Debug, Clone, Default)]
 pub struct KeyAgreementStats {
-    /// Tempo de operações KEM (ms)
     pub kem_time_ms: f64,
-    
-    /// Bytes de ciphertext KEM transmitidos
     pub kem_bytes: usize,
-    
-    /// Tempo de derivação HKDF (ms)
     #[allow(dead_code)]
     pub hkdf_time_ms: f64,
-    
-    /// Tempo total de overhead PQC (ms)
     pub total_time_ms: f64,
 }
 
-/// Erros de operações criptográficas
+/// Errors produced by cryptographic operations.
 #[derive(Debug, thiserror::Error)]
 pub enum CryptoError {
-    #[error("Formato de chave inválido")]
+    #[error("Invalid key format")]
     KeyFormat,
-    
-    /// Erro genérico de protocolo criptográfico
-    /// Inclui falhas de verificação, estados inválidos ou operações incorretas
-    #[error("Erro de protocolo: operação criptográfica falhou")]
+    #[error("Cryptographic protocol error")]
     Protocol,
-    
-    /// Erro de codificação/decodificação Base64
-    /// Ocorre durante serialização/deserialização de dados criptográficos
-    #[error("Erro de codificação Base64: dados não puderam ser codificados/decodificados")]
+    #[error("Base64 encoding/decoding error")]
     B64,
 }
 
-/// Interface comum para provedores criptográficos Matrix
-/// 
-/// API unificada para implementações clássica (Curve25519/Ed25519) 
-/// e híbrida (+ CRYSTALS-Kyber). Mantém compatibilidade semântica com o 
-/// protocolo Matrix padrão.
+/// Unified interface for Matrix crypto providers (classical and hybrid PQC).
 pub trait CryptoProvider {
-    /// Cria nova conta Matrix com chaves de identidade
-    /// 
-    /// Gera automaticamente pares de chaves:
-    /// - Curve25519 (ECDH)
-    /// - Ed25519 (assinatura)  
-    /// - CRYSTALS-Kyber (apenas modo híbrido)
     fn account_new() -> Self where Self: Sized;
-    
-    /// Configura chaves KEM de pares (apenas modo híbrido)
-    /// 
-    /// Implementação vazia no modo clássico.
+
     fn set_hybrid_kem_peer_pks(&mut self, _peer_kem_pks_b64: &[String]) {}
-    
-    /// Exporta chaves de identidade para servidor Matrix
+
     fn upload_identity_keys(&self) -> IdentityKeysExport;
-    
-    /// Gera lote de chaves one-time efêmeras
-    /// 
-    /// Cria múltiplas chaves de uso único que serão consumidas durante
-    /// estabelecimento de sessões PQXDH, garantindo sigilo progressivo.
-    /// 
-    /// # Parâmetros  
-    /// * `count` - Número de chaves one-time a gerar
+
     fn generate_one_time_keys(&mut self, count: usize) -> Vec<OneTimeKeyExport>;
-    
-    /// Marca chaves como publicadas no servidor
-    /// 
-    /// Atualiza estado interno para refletir que as chaves foram enviadas
-    /// ao servidor Matrix e estão disponíveis para outros usuários.
+
     fn mark_keys_published(&mut self);
-    
-    /// Cria sessão Olm outbound (inicia comunicação)
-    /// 
-    /// Estabelece nova sessão 1-para-1 usando protocolo PQXDH, realizando
-    /// acordo de chaves com outro usuário e inicializando Double Ratchet.
-    /// 
-    /// # Parâmetros
-    /// * `their_curve25519` - Chave pública Curve25519 do destinatário
-    /// * `their_one_time_key` - Chave one-time do destinatário a consumir
-    /// 
-    /// # Retorno
-    /// Tupla contendo:
-    /// - `OlmSessionHandle` - sessão criada
-    /// - `Option<MatrixPqxdhInitMessage>` - init_message para transmissão (Some se híbrido, None se clássico)
+
+    /// Creates an outbound Olm session.
+    /// Returns `(session, Some(init_message))` for hybrid mode, `(session, None)` for classical.
     fn create_outbound_session(
         &mut self,
         their_curve25519: &str,
         their_one_time_key: &str,
     ) -> Result<(OlmSessionHandle, Option<crate::core::pqxdh::MatrixPqxdhInitMessage>), CryptoError>;
-    
-    /// Configura init_message PQXDH para posterior criação de sessão inbound
-    /// 
-    /// IMPORTANTE: Este método DEVE ser chamado ANTES de create_inbound_session()
-    /// quando trabalhando com modo híbrido (PQXDH). Permite ao receiver injetar
-    /// a init_message que foi transmitida pelo sender.
-    /// 
-    /// # Parâmetros
-    /// * `init_message` - Mensagem PQXDH recebida do sender
-    /// 
-    /// # Modo Clássico
-    /// No modo clássico, este método não faz nada (implementação vazia).
-    /// 
-    /// # Modo Híbrido
-    /// Armazena a init_message para uso em create_inbound_session().
-    fn set_pqxdh_init_message(&mut self, _init_message: crate::core::pqxdh::MatrixPqxdhInitMessage) {
-        // Implementação padrão vazia (modo clássico)
-    }
-    
-    /// Cria sessão Olm inbound (responde a comunicação)
-    /// 
-    /// Processa PreKeyMessage recebida, estabelece acordo PQXDH,
-    /// cria sessão inbound e descriptografa mensagem inicial automaticamente.
-    /// 
-    /// # Parâmetros
-    /// * `their_curve25519` - Chave pública do remetente
-    /// * `prekey_message` - Bytes brutos da PreKeyMessage serializada
-    /// 
-    /// # Retorno
-    /// Tupla contendo (sessão_criada, mensagem_inicial_descriptografada)
-    /// 
-    /// # Modo Híbrido
-    /// REQUER que set_pqxdh_init_message() tenha sido chamado previamente.
-    /// Caso contrário, faz fallback para modo clássico com aviso.
+
+    /// Stores a PQXDH init message for use in the next `create_inbound_session` call.
+    /// No-op in classical mode.
+    fn set_pqxdh_init_message(&mut self, _init_message: crate::core::pqxdh::MatrixPqxdhInitMessage) {}
+
+    /// Creates an inbound Olm session from a received PreKey message.
+    /// In hybrid mode, requires `set_pqxdh_init_message` to have been called first.
     fn create_inbound_session(
         &mut self,
         their_curve25519: &str,
         prekey_message: &[u8],
     ) -> Result<(OlmSessionHandle, Vec<u8>), CryptoError>;
-    
-    /// Criptografa mensagem usando sessão Olm
-    /// 
-    /// Aplica Double Ratchet para derivar chaves de mensagem e criptografa
-    /// conteúdo usando AES-256-CBC com autenticação HMAC-SHA-256.
-    /// 
-    /// # Parâmetros
-    /// * `session` - Sessão Olm para criptografia
-    /// * `plaintext` - Dados a criptografar
-    /// 
-    /// # Retorno
-    /// Bytes brutos da mensagem serializada (PreKeyMessage ou Normal Message)
+
     fn olm_encrypt(&mut self, session: &mut OlmSessionHandle, plaintext: &[u8]) -> Vec<u8>;
-    
-    /// Descriptografa mensagem usando sessão Olm
-    /// 
-    /// Atualiza estado Double Ratchet, deriva chaves necessárias e
-    /// descriptografa mensagem com verificação de autenticidade.
-    /// 
-    /// # Parâmetros
-    /// * `session` - Sessão Olm para descriptografia
-    /// * `message` - Bytes brutos da mensagem serializada
+
     fn olm_decrypt(&mut self, session: &mut OlmSessionHandle, message: &[u8]) -> Result<Vec<u8>, CryptoError>;
-    
-    /// Cria sessão Megolm outbound para comunicação em grupo
-    /// 
-    /// Inicializa nova sessão de grupo onde este dispositivo pode enviar
-    /// mensagens criptografadas para múltiplos participantes.
+
     fn megolm_create_outbound(&mut self) -> MegolmOutbound;
-    
-    /// Exporta chave de sessão Megolm para distribuição
-    /// 
-    /// Serializa chave de sessão para distribuição segura via canais Olm
-    /// individuais para cada participante do grupo.
-    /// 
-    /// # Parâmetros
-    /// * `room_key` - Sessão Megolm outbound a exportar
-    /// 
-    /// # Retorno
-    /// Bytes brutos da session key serializada
+
     fn megolm_export_inbound(&self, room_key: &MegolmOutbound) -> Vec<u8>;
-    
-    /// Importa chave de sessão Megolm recebida
-    /// 
-    /// Cria sessão inbound a partir de chave recebida via canal Olm,
-    /// permitindo descriptografar mensagens do grupo.
-    /// 
-    /// # Parâmetros
-    /// * `exported` - Bytes brutos da session key serializada
+
     fn megolm_import_inbound(&mut self, exported: &[u8]) -> MegolmInbound;
-    
-    /// Criptografa mensagem para grupo usando Megolm
-    /// 
-    /// Deriva chave de mensagem a partir da chave de sessão e criptografa
-    /// conteúdo para transmissão eficiente para múltiplos destinatários.
-    /// 
-    /// # Parâmetros
-    /// * `outbound` - Sessão Megolm outbound
-    /// * `plaintext` - Dados a criptografar
-    /// 
-    /// # Retorno
-    /// Bytes brutos da mensagem Megolm serializada
+
     fn megolm_encrypt(&mut self, outbound: &mut MegolmOutbound, plaintext: &[u8]) -> Vec<u8>;
-    
-    /// Descriptografa mensagem de grupo usando Megolm
-    /// 
-    /// Deriva chave apropriada baseada no índice da mensagem e
-    /// descriptografa conteúdo com verificação de integridade.
-    /// 
-    /// # Parâmetros
-    /// * `inbound` - Sessão Megolm inbound
-    /// * `message` - Bytes brutos da mensagem Megolm serializada
+
     fn megolm_decrypt(&mut self, inbound: &mut MegolmInbound, message: &[u8]) -> Result<Vec<u8>, CryptoError>;
 }
-

@@ -1,4 +1,4 @@
-// Orquestração do benchmark pareado Classical↔Hybrid
+// Paired Classical↔Hybrid benchmark orchestration.
 
 use anyhow::Result;
 use serde::Serialize;
@@ -27,7 +27,7 @@ fn get_system_info() -> (String, String, usize) {
     (hostname, cpu_info, num_cpus)
 }
 
-/// Benchmarca uma sala individual
+/// Benchmarks a single room.
 pub fn benchmark_room(
     batch_id: &str,
     pair_id: &str,
@@ -81,10 +81,10 @@ pub fn benchmark_room(
     room.create_sessions_for_senders(&active_senders)?;
     let session_setup_ms = start.elapsed().as_secs_f64() * 1000.0;
 
-    vlog!(VerbosityLevel::Verbose, "   - Executando warm-up bidirecional para estabelecer peer_key");
+    vlog!(VerbosityLevel::Verbose, "   - [WARMUP] running bidirectional Olm warmup to establish peer_key");
     room.warmup_olm_sessions_bidirectional()?;
 
-    // Seed derivada de batch_id + room_type + rotation_policy + pair_id para reprodutibilidade
+    // Seed derived from batch_id + room_type + rotation_policy + pair_id for reproducibility.
     let seed = format!("{}{:?}{:?}{}", batch_id, room_type, rotation_policy, pair_id)
         .bytes()
         .fold(0u64, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u64));
@@ -92,7 +92,7 @@ pub fn benchmark_room(
     let scenario = room_type.to_usage_scenario();
     let mut msg_gen = MessageGenerator::new_with_seed(scenario, seed);
 
-    // Warmup: primeira mensagem (pode ser mais lenta por lazy init)
+    // Warmup: first message may be slower due to lazy session init.
     let _ = room.send_message(&active_senders[0], b"Warmup message")?;
 
     let iterations = room_type.messages_to_send();
@@ -107,12 +107,12 @@ pub fn benchmark_room(
     }
     let message_encrypt_ms = start.elapsed().as_secs_f64() * 1000.0 / iterations as f64;
 
-    // Encrypt puro (apenas Megolm, sem gerenciamento de sala)
+    // Pure Megolm encrypt (no room management overhead).
     let primary_sender_id = &active_senders[0];
     let sender_member = room.members.get_mut(primary_sender_id)
-        .ok_or_else(|| anyhow::anyhow!("Sender não encontrado"))?;
+        .ok_or_else(|| anyhow::anyhow!("Sender not found"))?;
     let sender_session = room.sender_sessions.get_mut(primary_sender_id)
-        .ok_or_else(|| anyhow::anyhow!("Sessão outbound não encontrada"))?;
+        .ok_or_else(|| anyhow::anyhow!("Outbound session not found"))?;
 
     let mut msg_gen_pure = MessageGenerator::new_with_seed(scenario, seed);
     let start = Instant::now();
@@ -243,7 +243,7 @@ fn benchmark_profile(
         CryptoMode::Hybrid => "Hybrid",
     };
 
-    vlog!(VerbosityLevel::Minimal, "  Benchmarking {} com {} salas...", mode_name, profile.total_rooms());
+    vlog!(VerbosityLevel::Minimal, "  Benchmarking {} with {} rooms...", mode_name, profile.total_rooms());
 
     let mut room_benchmarks = Vec::new();
     let mut total_setup_ms = 0.0;
@@ -251,7 +251,7 @@ fn benchmark_profile(
     let mut total_decrypt_ms = 0.0;
 
     for (i, (room_id, room_type)) in profile.rooms.iter().enumerate() {
-        vlog!(VerbosityLevel::Normal, "    Sala {}/{}: {} ({} membros)",
+        vlog!(VerbosityLevel::Normal, "    Room {}/{}: {} ({} members)",
               i + 1, profile.total_rooms(),
               room_type.name(), room_type.member_count());
 
@@ -283,27 +283,27 @@ fn benchmark_profile(
     })
 }
 
-/// Executa benchmark pareado com N repetições (alternância Classical↔Hybrid)
+/// Runs a paired benchmark for N repetitions, alternating Classical↔Hybrid order.
 ///
-/// Design pareado: para cada pair_id (0..repetitions):
-/// - par: Classical → Hybrid
-/// - ímpar: Hybrid → Classical
+/// Paired design: for each `pair_id` in `0..repetitions`:
+/// - even: Classical first, then Hybrid
+/// - odd:  Hybrid first, then Classical
 pub fn run_paired_benchmark(
     user_id: &str,
     repetitions: usize,
     rotation_policy: Option<RotationPolicy>,
 ) -> Result<Vec<PairedRun>> {
-    println!("\n=== Benchmark Pareado de Perfil de Usuário ===\n");
+    println!("\n=== Paired User Profile Benchmark ===\n");
 
     let profile = UserProfile::typical(user_id);
     let batch_id = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
     let policy = rotation_policy.unwrap_or(RotationPolicy::Balanced);
 
-    println!("Perfil: {}", profile.user_id);
-    println!("  Salas: {}", profile.total_rooms());
-    println!("  Sessões Olm: {}", profile.total_olm_sessions());
-    println!("  Repetições: {} pares Classical↔Hybrid", repetitions);
-    println!("  Política de rotação: {:?}\n", policy);
+    println!("Profile: {}", profile.user_id);
+    println!("  Rooms: {}", profile.total_rooms());
+    println!("  Olm sessions: {}", profile.total_olm_sessions());
+    println!("  Repetitions: {} Classical↔Hybrid pairs", repetitions);
+    println!("  Rotation policy: {:?}\n", policy);
 
     let mut all_runs = Vec::new();
 
@@ -319,7 +319,7 @@ pub fn run_paired_benchmark(
         let first_name = if first_repeat == 0 { "Classical" } else { "Hybrid" };
         let second_name = if second_repeat == 0 { "Classical" } else { "Hybrid" };
 
-        progress!("Par {}/{} (ordem: {} → {})",
+        progress!("Pair {}/{} (order: {} → {})",
                  pair_idx + 1, repetitions, first_name, second_name);
 
         let first = benchmark_profile(&batch_id, &pair_id, first_repeat, &profile, first_mode, policy)?;
@@ -474,8 +474,8 @@ pub fn save_paired_runs_csv(runs: &[PairedRun], filename: &str) -> Result<()> {
     }
 
     wtr.flush()?;
-    progress!(" Dados pareados (long/tidy) salvos: {}", filename);
-    progress!("  (Formato: cada linha = uma sala em uma repetição)");
-    progress!("  (Análise: python scripts/analyze.py {})", filename);
+    progress!(" Paired data (long/tidy) saved: {}", filename);
+    progress!("  (format: one row per room per repetition)");
+    progress!("  (analysis: python scripts/analyze.py {})", filename);
     Ok(())
 }

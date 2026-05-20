@@ -1,5 +1,4 @@
-// Vodozemac Wrapper PQC
-// Benchmark de Perfil de Usuário
+// Vodozemac Wrapper PQC — user profile benchmark.
 
 use anyhow::Result;
 use clap::{Parser, ValueEnum};
@@ -35,25 +34,25 @@ impl RotationPolicyArg {
 
 #[derive(Parser, Debug)]
 #[command(name = "vodozemac-wrapper-pqc")]
-#[command(about = "Vodozemac Wrapper PQC - Benchmark de Perfil de Usuário", long_about = None)]
+#[command(about = "Vodozemac Wrapper PQC — user profile benchmark", long_about = None)]
 struct Args {
-    /// Modo de operação
+    /// Operation mode.
     #[arg(long, value_enum, default_value = "user-profile")]
     mode: Mode,
 
-    /// Número de repetições do benchmark
+    /// Number of benchmark repetitions.
     #[arg(long, default_value_t = 5)]
     repetitions: usize,
 
-    /// Testar todas as políticas de rotação
+    /// Run all rotation policies.
     #[arg(long, default_value_t = false)]
     all_rotation_policies: bool,
 
-    /// Política de rotação específica (ignorado se --all-rotation-policies)
+    /// Specific rotation policy (ignored when --all-rotation-policies is set).
     #[arg(long, value_enum)]
     rotation_policy: Option<RotationPolicyArg>,
 
-    /// Nível de verbosidade (0=Silent, 1=Minimal, 2=Normal, 3=Verbose, 4=Debug)
+    /// Verbosity level (0=Silent, 1=Minimal, 2=Normal, 3=Verbose, 4=Debug).
     #[arg(long, default_value_t = 2)]
     verbosity: u8,
 }
@@ -61,7 +60,7 @@ struct Args {
 fn main() -> Result<()> {
     let args = Args::parse();
 
-    // Configurar verbosidade
+    // Configure verbosity.
     use utils::logging::{set_verbosity, VerbosityLevel};
     let verbosity = match args.verbosity {
         0 => VerbosityLevel::Silent,
@@ -89,7 +88,7 @@ fn run_user_profile_benchmark(args: &Args) -> Result<()> {
     let repetitions = args.repetitions;
 
     if args.all_rotation_policies {
-        println!("Testando TODAS as políticas de rotação ({} repetições cada)\n", repetitions);
+        println!("Running ALL rotation policies ({} repetitions each)\n", repetitions);
         
         std::fs::create_dir_all("results")?;
         
@@ -100,22 +99,22 @@ fn run_user_profile_benchmark(args: &Args) -> Result<()> {
             RotationPolicyArg::Relaxed,
         ];
 
-        // Coletar todos os runs de todas as políticas
+        // Collect all paired runs across all policies.
         let mut all_paired_runs = Vec::new();
 
-        // Executar para cada política
+        // Run each policy.
         for (policy_idx, policy_arg) in policies.iter().enumerate() {
             let policy = policy_arg.to_protocol_policy();
             
-            println!("\n--- Executando com política: {:?} [{}/{}] ---", 
+            println!("\n--- Running policy: {:?} [{}/{}] ---", 
                      policy_arg, policy_idx + 1, policies.len());
             
             let paired_runs = run_paired_benchmark(user_id, repetitions, Some(policy))?;
             
-            // Adicionar à coleção consolidada
+            // Merge into consolidated collection.
             all_paired_runs.extend(paired_runs);
             
-            println!(" Política {:?} concluída", policy_arg);
+            println!(" Policy {:?} done", policy_arg);
         }
 
         // Salvar TODOS os runs em um único CSV
@@ -123,12 +122,11 @@ fn run_user_profile_benchmark(args: &Args) -> Result<()> {
         let filename = format!("results/resultados_experiment_{}.csv", timestamp);
         save_paired_runs_csv(&all_paired_runs, &filename)?;
 
-        println!("\n=== Benchmark Concluído ===");
-        println!(" Execuções: {} pares Classical↔Hybrid por política", repetitions);
-        println!(" Políticas executadas: {} (Paranoid, PQ3, Balanced, Relaxed)", policies.len());
-        println!(" Total de registros: {}", all_paired_runs.len());
-        println!(" CSV consolidado: {}", filename);
-        println!("   (Todas as políticas em um único arquivo)");
+        println!("\n=== Benchmark Complete ===");
+        println!(" Runs: {} Classical↔Hybrid pairs per policy", repetitions);
+        println!(" Policies: {} (Paranoid, PQ3, Balanced, Relaxed)", policies.len());
+        println!(" Total records: {}", all_paired_runs.len());
+        println!(" CSV: {}", filename);
     } else {
         let policy = args.rotation_policy.map(|p| p.to_protocol_policy());
         let policy_name = match args.rotation_policy {
@@ -144,9 +142,9 @@ fn run_user_profile_benchmark(args: &Args) -> Result<()> {
         let filename = format!("results/resultados_experiment_{}.csv", timestamp);
         save_paired_runs_csv(&results, &filename)?;
         
-        println!("\n Salvos: {}", filename);
+        println!("\n Saved: {}", filename);
     }
 
-    println!("\nBenchmark concluído com sucesso!");
+    println!("\nBenchmark complete.");
     Ok(())
 }

@@ -9,17 +9,13 @@ use super::*;
 
 #[allow(dead_code)]
 impl MatrixRoom {
-    /// Rotaciona APENAS sessões Megolm dos senders ativos, preservando sessões Olm existentes
-    /// Método otimizado conforme recomendação para reduzir overhead de rotação
+    /// Rotates only the Megolm sessions of active senders, preserving existing Olm sessions.
     pub(crate) fn rotate_megolm_only(&mut self, reason: String) -> Result<()> {
         let start_time = std::time::Instant::now();
-        vlog!(VerbosityLevel::Verbose, "   - Rotacionando APENAS sessões Megolm (razão: {}) - preservando Olm", reason);
+        vlog!(VerbosityLevel::Verbose, "Rotating Megolm sessions (reason: {})", reason);
         
-        // MARCAR INÍCIO DA FASE DE ROTAÇÃO (para contagem consistente de bandwidth)
         self.in_rotation_phase = true;
-        vlog!(VerbosityLevel::Normal, "   [ROTATION_PHASE] INICIADA (rotation_count={})", self.rotation_count);
         
-        // Arquivar estatísticas da sessão atual e determinar se é uma rotação real
         let is_rotation = !self.sender_sessions.is_empty();
         
         if is_rotation {
@@ -27,68 +23,42 @@ impl MatrixRoom {
             self.rotation_count += 1;
         }
 
-        // Resetar contadores para nova sessão
         self.message_count = 0;
         self.message_count_per_sender.clear();
         self.session_start_time = std::time::Instant::now();
 
-        // ============================================================================
-        // MULTI-SENDER ROTATION: Redistribuir chaves Megolm de TODOS os senders ativos
-        // ============================================================================
-        // No Matrix real, cada sender mantém sua própria sessão Megolm outbound.
-        // Durante rotação, CADA sender:
-        // 1. Cria nova sessão Megolm outbound
-        // 2. Distribui a nova chave via Olm para todos os outros membros
-        // 
-        // Isso cria tráfego Olm BIDIRECIONAL natural:
-        // - Sender A → receivers (B, C, D, ...)
-        // - Sender B → receivers (A, C, D, ...)
-        // - Sender C → receivers (A, B, D, ...)
-        // 
-        // Resultado: Cada par de dispositivos troca mensagens Olm, estabelecendo peer_key
-        //
-        // IMPORTANTE - Comportamento de peer_key:
-        // - Primeira rotação: Sessões Olm outbound ainda "lazy" (sem peer_key)
-        //   porque acabaram de ser criadas e nunca receberam mensagens de volta
-        // - Segunda rotação em diante: peer_key estabelecido naturalmente
-        //   porque cada sender já recebeu distribuições de outros senders
-        //   (ex: A recebeu de B, então sessão outbound A→B agora "conhece" B)
-        // 
-        // Isto reflete o comportamento real do Matrix onde peer_key é estabelecido
-        // gradualmente através do uso contínuo das sessões Olm.
-        
+        // Each active sender creates a fresh Megolm outbound session and distributes
+        // its key to every other member via their existing Olm channels.
         let active_senders: Vec<String> = self.sender_sessions.keys().cloned().collect();
         let member_ids: Vec<String> = self.members.keys().cloned().collect();
         
-        vlog!(VerbosityLevel::Debug, "   - [MULTI-SENDER] Redistribuindo chaves de {} senders", active_senders.len());
+        vlog!(VerbosityLevel::Debug, "Multi-sender rotation: {} senders", active_senders.len());
         
         for sender_id in &active_senders {
-            // Criar nova sessão Megolm outbound para este sender
+            // Create a fresh Megolm outbound session for this sender.
             let sender = self.members.get_mut(sender_id).unwrap();
             let new_megolm_outbound = sender.crypto.megolm_create_outbound();
             let session_key = sender.crypto.megolm_export_inbound(&new_megolm_outbound);
             
-            // BATCH: Coletar todas as chaves cifradas para este sender
+            // BATCH: Colect cipher keys for all receivers before decrypting any --- more efficient than interleaving encrypt-decrypt per receiver
             let mut batch_encrypted_keys: Vec<(String, Vec<u8>)> = Vec::new();
             
             for receiver_id in &member_ids {
                 if sender_id != receiver_id {
-                    // Garantir sessão Olm existe (já deveria existir do setup)
                     self.ensure_olm_session(sender_id, receiver_id)?;
                     
-                    // Criptografar chave Megolm via Olm
                     match self.encrypt_megolm_key_via_olm_multi_sender(sender_id, &session_key, receiver_id) {
                         Ok(encrypted_key) => {
                             batch_encrypted_keys.push((receiver_id.clone(), encrypted_key));
                         }
                         Err(e) => {
-                            vlog!(VerbosityLevel::Debug, "       - Erro ao criptografar chave de {} para {}: {}", sender_id, receiver_id, e);
+                            vlog!(VerbosityLevel::Debug, "Key encrypt error {} -> {}: {}", sender_id, receiver_id, e);
                         }
                     }
                 }
             }
             
-            // RECEIVE: Cada receiver descriptografa sua chave
+            // RECEIVE: Each receiver decrypts the new session key via Olm and imports it as a new Megolm inbound session, replacing the old one.
             for (receiver_id, encrypted_key) in batch_encrypted_keys {
                 match self.decrypt_megolm_key_via_olm_multi_sender(&encrypted_key, &receiver_id, sender_id) {
                     Ok(decrypted_key) => {
@@ -98,49 +68,25 @@ impl MatrixRoom {
                         }
                     }
                     Err(e) => {
-                        vlog!(VerbosityLevel::Debug, "       - Erro ao descriptografar chave de {} para {}: {}", sender_id, receiver_id, e);
+                        vlog!(VerbosityLevel::Debug, "Key decrypt error {} -> {}: {}", sender_id, receiver_id, e);
                     }
                 }
             }
             
-            // Armazenar nova sessão outbound
+            // Store new outbound session --- do this after all receivers have decrypted to maximize chances of successful distribution before any sender starts using the new session.
             self.sender_sessions.insert(sender_id.clone(), new_megolm_outbound);
             self.message_count_per_sender.insert(sender_id.clone(), 0);
         }
 
-        // ============================================================================
-        // FORÇAR AVANÇO ASSIMÉTRICO PQC APENAS DURANTE ROTAÇÕES REAIS
-        // ============================================================================
-        // COMPORTAMENTO CORRETO:
-        // - Durante SETUP inicial: NÃO executar forced ratchet (sessões lazy)
-        // - Durante ROTAÇÕES: SIM executar forced ratchet (após warm-up bidirecional)
-        //   para garantir forward secrecy PQC a cada redistribuição de chaves Megolm
-        // 
-        // PRÉ-REQUISITO: warmup_olm_sessions_bidirectional() deve ter sido executado
-        // - Warm-up estabelece peer_key em TODAS as sessões outbound
-        // - Após warm-up, forced_ratchet pode executar KEM em TODAS as rotações
-        //
-        // JUSTIFICATIVA:
-        // - Sessões outbound recém-criadas (nunca usadas) NÃO têm peer_key ainda
-        // - peer_key só é obtido quando:
-        //   a) Enviamos primeira mensagem (PreKeyMessage) E
-        //   b) Recebemos resposta do peer (com their_ratchet_key)
-        // - No setup inicial, TODAS as sessões são lazy (sem peer_key)
-        // - Nas rotações, sessões já foram usadas e têm peer_key estabelecido
-        // 
-        // CONTADORES (apenas durante rotações):
-        // - sessions_forced: Sessões PQC que JÁ tinham peer_key e executaram KEM
-        // - sessions_lazy: Sessões PQC sem peer_key ainda (KEM na primeira mensagem)
-        // - sessions_classical: Sessões sem PQC habilitado
-        
+        // During real rotations (not initial setup), force an asymmetric PQC ratchet step
+        // on every inbound session. Sessions with an established peer key execute KEM
+        // immediately; sessions without one will execute KEM on the next message exchange.
         if is_rotation {
-            vlog!(VerbosityLevel::Debug, "   - Forçando avanço assimétrico PQC em sessões Olm antes da rotação");
+            let mut sessions_forced = 0;
+            let mut sessions_lazy = 0;
+            let mut sessions_classical = 0;
             
-            let mut sessions_forced = 0;      // PQC com peer_key: KEM executado
-            let mut sessions_lazy = 0;        // PQC sem peer_key: KEM aguarda primeiro uso
-            let mut sessions_classical = 0;   // Sem PQC
-            
-            // Coletar todos os pares (sender_id, receiver_id, outbound_session)
+            // Collect all pairs (sender_id, receiver_id, outbound_session)
             let mut session_list: Vec<(String, String)> = Vec::new();
             for (sender_id, member) in self.members.iter() {
                 for receiver_id in member.olm_sessions.keys() {
@@ -148,14 +94,12 @@ impl MatrixRoom {
                 }
             }
             
-            // Processar cada sessão
             for (sender_id, receiver_id) in session_list {
-                // SOLUÇÃO CORRETA: Executar forced_ratchet na sessão INBOUND do RECEIVER
-                // Motivo: INBOUND tem peer_key estabelecido após receber mensagem do sender
-                //         OUTBOUND não tem peer_key até receber resposta
-                // 
-                // COMPARTILHAMENTO: pending_kem_ciphertext gerado no INBOUND é armazenado
-                //                   no OlmSessionPair para ser usado pelo OUTBOUND ao enviar
+                // Force the ratchet on the INBOUND session of the receiver: inbound sessions
+                // have a peer key established after receiving the first message, whereas
+                // outbound sessions only acquire one after a reply arrives.
+                // The pending KEM ciphertext is stored in OlmSessionPair so the outbound
+                // session can include it in the next message it sends.
                 if let Some(receiver) = self.members.get_mut(&receiver_id) {
                     if let Some(olm_pair) = receiver.olm_sessions.get_mut(&sender_id) {
                         if let Some(ref mut inbound_session) = olm_pair.inbound {
@@ -165,16 +109,15 @@ impl MatrixRoom {
                                 Ok(()) => {
                                     if inbound_session.is_pqc_enabled() {
                                         if has_peer_key {
-                                            // Transferir pending_kem_ciphertext do INBOUND para o pair compartilhado
                                             if let Some(pending_kem) = inbound_session.hybrid_session.take_pending_kem_ciphertext() {
                                                 olm_pair.pending_kem_for_outbound = Some(pending_kem.clone());
-                                                vlog!(VerbosityLevel::Debug, "      └─  Forced ratchet INBOUND {} <- {}: KEM executado ({} bytes) → armazenado no pair", 
+                                                vlog!(VerbosityLevel::Debug, "Forced ratchet {} <- {}: KEM ({} bytes)", 
                                                      receiver_id, sender_id, pending_kem.len());
                                             }
                                             sessions_forced += 1;
                                         } else {
                                             sessions_lazy += 1;
-                                            vlog!(VerbosityLevel::Debug, "      └─  Forced ratchet INBOUND {} <- {}: sem peer_key", 
+                                            vlog!(VerbosityLevel::Debug, "Forced ratchet {} <- {}: no peer key yet", 
                                                  receiver_id, sender_id);
                                         }
                                     } else {
@@ -182,7 +125,7 @@ impl MatrixRoom {
                                     }
                                 }
                                 Err(e) => {
-                                    vlog!(VerbosityLevel::Debug, "      └─ Erro ao forçar ratchet INBOUND {} <- {}: {:?}", 
+                                    vlog!(VerbosityLevel::Debug, "Forced ratchet error {} <- {}: {:?}", 
                                          receiver_id, sender_id, e);
                                 }
                             }
@@ -191,146 +134,92 @@ impl MatrixRoom {
                 }
             }
             
-            vlog!(VerbosityLevel::Debug, "   -  Avanço assimétrico concluído:");
-            vlog!(VerbosityLevel::Debug, "      └─ Sessões PQC forçadas: {} (KEM executado - peer_key estabelecido)", sessions_forced);
-            vlog!(VerbosityLevel::Debug, "      └─ Sessões PQC lazy: {} (aguardando primeiro uso para KEM)", sessions_lazy);
-            vlog!(VerbosityLevel::Debug, "      └─ Sessões clássicas: {} (sem PQC)", sessions_classical);
+            vlog!(VerbosityLevel::Debug, "   -  asymmetric advance complete:");
+            vlog!(VerbosityLevel::Debug, "      └─ PQC sessions forced: {} (KEM executed, peer_key established)", sessions_forced);
+            vlog!(VerbosityLevel::Debug, "      └─ PQC sessions lazy: {} (KEM deferred until first use)", sessions_lazy);
+            vlog!(VerbosityLevel::Debug, "      └─ classical sessions: {} (no PQC)", sessions_classical);
             
-            // Incrementar contador de avanços assimétricos da sala
             self.num_asymmetric_advances += sessions_forced;
             
-            // Análise: Esperamos sessions_forced = total após warm-up bidirecional
             if sessions_forced > 0 {
-                vlog!(VerbosityLevel::Normal, "   - FORCED RATCHET ATIVO: {} sessões executaram KEM", sessions_forced);
+                vlog!(VerbosityLevel::Normal, "Forced ratchet: {} sessions executed KEM", sessions_forced);
             } else if sessions_lazy > 0 {
-                vlog!(VerbosityLevel::Normal, "   -  FORCED RATCHET INATIVO: {} sessões lazy (peer_key não estabelecido)", sessions_lazy);
-                vlog!(VerbosityLevel::Normal, "      └─ Warm-up bidirecional deve resolver isso");
+                vlog!(VerbosityLevel::Normal, "Forced ratchet inactive: {} sessions without peer key", sessions_lazy);
             }
+            let _ = sessions_classical;
         } else {
-            vlog!(VerbosityLevel::Debug, "   - Setup inicial: Pulando forced ratchet (sessões Olm ainda não estabelecidas)");
+            vlog!(VerbosityLevel::Debug, "Initial setup: skipping forced ratchet");
         }
 
-        // Atualizar métricas - TEMPO TOTAL DA ROTAÇÃO (encrypt + decrypt para todos)
         let elapsed = start_time.elapsed().as_secs_f64() * 1000.0;
         self.time_rotation_ms += elapsed;
         
-        self.current_session_stats.creation_time_ms = 0.0; // Não recria sessões base
+        self.current_session_stats.creation_time_ms = 0.0;
         self.current_session_stats.distribution_time_ms = elapsed;
 
-        // MARCAR FIM DA FASE DE ROTAÇÃO
         self.in_rotation_phase = false;
-        vlog!(VerbosityLevel::Normal, "   [ROTATION_PHASE] FINALIZADA");
 
         Ok(())
     }
 
-    /// Rotaciona todas as sessões Megolm (usado após mudanças de membros)
-    /// NOTA: Para rotações periódicas (tempo/mensagens), use rotate_megolm_only()
+    /// Rotates all sessions (Olm + Megolm). Use after membership changes.
+    /// For periodic rotations prefer `rotate_megolm_only`.
     pub(crate) fn rotate_all_sessions(&mut self, reason: String) -> Result<()> {
-        vlog!(VerbosityLevel::Verbose, "   - Rotacionando todas as sessões Megolm (razão: {})", reason);
+        vlog!(VerbosityLevel::Verbose, "Rotating all sessions (reason: {})", reason);
         
-        // Arquivar estatísticas da sessão atual
         if !self.sender_sessions.is_empty() {
             self.session_history.push(std::mem::take(&mut self.current_session_stats));
-            self.rotation_count += 1; // Incrementar contador de rotações
+            self.rotation_count += 1;
         }
 
-        // Resetar contadores para nova sessão (CRÍTICO!)
         self.message_count = 0;
         self.message_count_per_sender.clear();
         self.session_start_time = std::time::Instant::now();
 
-        // Recriar todas as sessões (Olm + Megolm) - apenas quando necessário
         self.sender_sessions.clear();
         self.create_sessions()
     }
 
-    /// Garante que existe sessão Olm OUTBOUND entre sender e receiver
-    /// Inbound session será criada lazy durante primeira descriptografia
+    /// Ensures an outbound Olm session exists from `sender_id` to `receiver_id`.
+    /// The inbound session is created lazily on first decrypt.
     pub(crate) fn ensure_olm_session(&mut self, sender_id: &str, receiver_id: &str) -> Result<()> {
-        // Verificar se já existe sessão outbound
         let needs_creation = if let Some(sender) = self.members.get(sender_id) {
             if let Some(pair) = sender.olm_sessions.get(receiver_id) {
-                let has_outbound = pair.has_outbound();
-                if !has_outbound {
-                    vlog!(VerbosityLevel::Debug, "     - [ENSURE_OLM] Sessão {} -> {} NÃO existe, criando NOVA", 
-                         sender_id, receiver_id);
-                } else {
-                    // Verificar status de peer_key na sessão INBOUND do RECEIVER
-                    // (pois é lá que has_received_message() fica true)
-                    let peer_key_status = if let Some(receiver) = self.members.get(receiver_id) {
-                        if let Some(receiver_pair) = receiver.olm_sessions.get(sender_id) {
-                            if let Some(ref inbound) = receiver_pair.inbound {
-                                if inbound.has_peer_key() {
-                                    " COM peer_key PQC no inbound"
-                                } else if inbound.has_received_message_classic() {
-                                    " Inbound recebeu mensagem (pronto)"
-                                } else {
-                                    " SEM peer_key no inbound (lazy)"
-                                }
-                            } else {
-                                " Receiver não tem inbound"
-                            }
-                        } else {
-                            " Receiver não tem par Olm"
-                        }
-                    } else {
-                        " Receiver não encontrado"
-                    };
-                    vlog!(VerbosityLevel::Debug, "     - [ENSURE_OLM] Sessão {} -> {} JÁ existe, reutilizando [{}]", 
-                         sender_id, receiver_id, peer_key_status);
-                }
-                !has_outbound
+                !pair.has_outbound()
             } else {
-                vlog!(VerbosityLevel::Debug, "     - [ENSURE_OLM] Par Olm {} -> {} não encontrado, criando NOVO", 
-                     sender_id, receiver_id);
                 true
             }
         } else {
-            return Err(anyhow::anyhow!("Sender {} não encontrado", sender_id));
+            return Err(anyhow::anyhow!("Sender {} not found", sender_id));
         };
 
         if needs_creation {
-            // LAZY: Criar APENAS sessão outbound (inbound será criada em decrypt)
             let (outbound_session, init_message_opt) = self.create_outbound_olm_session_only(sender_id, receiver_id)?;
             
-            vlog!(VerbosityLevel::Debug, "     - [ENSURE_OLM]  NOVA sessão Olm criada: {} -> {} (peer_key será perdido!)", 
-                 sender_id, receiver_id);
-            
-            // TRANSMITIR init_message para o receiver (se híbrido)
             if let Some(init_msg) = init_message_opt {
                 if let Some(receiver) = self.members.get_mut(receiver_id) {
                     receiver.crypto.set_pqxdh_init_message(init_msg);
-                    vlog!(VerbosityLevel::Debug, "     - [LAZY] Init message transmitida: {} -> {}", 
-                         sender_id, receiver_id);
                 }
             }
             
-            // Armazenar outbound no sender
             if let Some(sender) = self.members.get_mut(sender_id) {
                 let pair = sender.olm_sessions.entry(receiver_id.to_string())
                     .or_insert_with(OlmSessionPair::new);
                 pair.outbound = Some(outbound_session);
             }
-            
-            // NOTA: Inbound session será criada lazy em decrypt_megolm_key_via_olm_multi_sender
-            // via create_inbound_session() quando a primeira PreKeyMessage chegar
         }
 
         Ok(())
     }
-    /// Verifica se rotação é necessária
     pub(crate) fn should_rotate(&self) -> Option<String> {
         if self.sender_sessions.is_empty() {
             return None;
         }
 
-        // Verificar limite de mensagens
         if self.message_count >= self.rotation_config.max_messages {
             return Some(format!("message_limit:{}", self.message_count));
         }
 
-        // Verificar limite de tempo
         let session_age_ms = self.session_start_time.elapsed().as_millis() as u64;
         if session_age_ms >= self.rotation_config.max_age_ms {
             return Some(format!("time_limit:{}ms", session_age_ms));

@@ -1,4 +1,4 @@
-// Structs e enums de métricas do benchmark PQC
+// Benchmark metrics structs and enums.
 
 use serde::{Deserialize, Serialize};
 use crate::protocols::room::RotationPolicy;
@@ -48,12 +48,12 @@ impl HardwareProfile {
 
         let cpu_freq_mhz = sys_info::cpu_speed().unwrap_or(0) as u32;
 
-        // Classificação baseada em dados reais de hardware (RAM + núcleos):
-        //   ≤1 GB               → IoT        (microcontroladores, RPi Zero)
-        //   ≤8 GB  + ARM64      → EmbeddedSBC (Jetson Orin/Nano, RPi 4/5)
-        //   ≤8 GB  + x86/outro  → Mobile     (laptops, netbooks)
-        //   ≤64 GB              → Desktop    (workstations típicas)
-        //   >64 GB              → Server     (rack, nuvem)
+        // Device classification by RAM and architecture:
+        //   ≤1 GB               → IoT        (microcontrollers, RPi Zero)
+        //   ≤8 GB  + ARM64      → EmbeddedSBC (Jetson, RPi 4/5)
+        //   ≤8 GB  + x86/other  → Mobile
+        //   ≤64 GB              → Desktop
+        //   >64 GB              → Server
         let ram_gb = ram_mb / 1024;
         let is_arm64 = cfg!(target_arch = "aarch64");
         let device_type = if ram_gb <= 1 {
@@ -81,7 +81,7 @@ impl HardwareProfile {
     }
 }
 
-/// Métricas de política de rotação Megolm
+/// Megolm rotation policy metrics.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RotationMetrics {
     pub policy_type: String,
@@ -107,7 +107,7 @@ impl RotationMetrics {
     }
 }
 
-/// Métricas de largura de banda
+/// Bandwidth breakdown metrics.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct BandwidthMetrics {
     pub kem_handshake_bytes: usize,
@@ -147,13 +147,7 @@ impl RoomType {
         }
     }
 
-    /// Número de mensagens a enviar por tipo de sala
-    ///
-    /// Calibrado para garantir múltiplas rotações em todas as políticas:
-    /// - Paranoid (25):  DM=20, Small=30, Medium=40, Large=50
-    /// - PQ3 (50):       DM=10, Small=15, Medium=20, Large=25
-    /// - Balanced (100): DM=5,  Small=7,  Medium=10, Large=12
-    /// - Relaxed (250):  DM=2,  Small=3,  Medium=4,  Large=5
+    /// Number of messages to send per room type (ensures multiple rotations in all policies).
     pub fn messages_to_send(&self) -> usize {
         match self {
             RoomType::DirectMessage => 500,
@@ -174,7 +168,7 @@ impl RoomType {
     }
 }
 
-/// Perfil de uso do usuário (conjunto de salas)
+/// User activity profile (set of rooms the user participates in).
 #[derive(Debug, Clone)]
 pub struct UserProfile {
     pub user_id: String,
@@ -210,7 +204,7 @@ impl UserProfile {
     }
 }
 
-/// Métricas de desempenho por sala (formato pareado)
+/// Per-room benchmark results (paired format).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RoomBenchmark {
     pub batch_id: String,
@@ -269,26 +263,26 @@ pub struct RoomBenchmark {
     pub bandwidth_control_plane: usize,
     pub bandwidth_data_plane: usize,
 
-    // Primitivas isoladas — Agreement
+    // Isolated primitives — Agreement
     pub bandwidth_agreement_primitives_identity_keys: usize,
     pub bandwidth_agreement_primitives_otk: usize,
     pub bandwidth_agreement_primitives_kyber1024: usize,
     pub bandwidth_agreement_primitives_prekey_overhead: usize,
 
-    // Primitivas isoladas — Initial Distribution
+    // Isolated primitives — Initial Distribution
     pub bandwidth_initial_distribution_primitives_megolm_key: usize,
     pub bandwidth_initial_distribution_primitives_ratchet_key: usize,
     pub bandwidth_initial_distribution_primitives_kem_ct: usize,
     pub bandwidth_initial_distribution_primitives_olm_overhead: usize,
 
-    // Primitivas isoladas — Rotation
+    // Isolated primitives — Rotation
     pub bandwidth_rotation_primitives_megolm_key: usize,
     pub bandwidth_rotation_primitives_ratchet_key: usize,
     pub bandwidth_rotation_primitives_kem_ct: usize,
     pub bandwidth_rotation_primitives_olm_overhead: usize,
 }
 
-/// Métricas agregadas do perfil completo
+/// Aggregated benchmark results for a full user profile run.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProfileBenchmark {
     pub crypto_mode: String,
@@ -303,7 +297,7 @@ pub struct ProfileBenchmark {
     pub avg_message_decrypt_ms: f64,
 }
 
-/// Resultados pareados por repetição (formato long/tidy)
+/// Paired run results per repetition (long/tidy format).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PairedRun {
     pub batch_id: String,
