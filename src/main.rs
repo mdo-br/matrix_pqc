@@ -71,7 +71,7 @@ fn main() -> Result<()> {
     };
     set_verbosity(verbosity);
 
-    println!("=== Vodozemac Wrapper PQC ===\n");
+    progress!("=== Vodozemac Wrapper PQC ===\n");
 
     match args.mode {
         Mode::UserProfile => run_user_profile_benchmark(&args)?,
@@ -83,12 +83,13 @@ fn main() -> Result<()> {
 fn run_user_profile_benchmark(args: &Args) -> Result<()> {
     use benchmark::{run_paired_benchmark, save_paired_runs_csv};
     use chrono::Local;
+    use utils::logging::VerbosityLevel;
 
     let user_id = "@alice:matrix.org";
     let repetitions = args.repetitions;
 
     if args.all_rotation_policies {
-        println!("Running ALL rotation policies ({} repetitions each)\n", repetitions);
+        progress!("Running ALL rotation policies ({} repetitions each)\n", repetitions);
         
         std::fs::create_dir_all("results")?;
         
@@ -106,7 +107,7 @@ fn run_user_profile_benchmark(args: &Args) -> Result<()> {
         for (policy_idx, policy_arg) in policies.iter().enumerate() {
             let policy = policy_arg.to_protocol_policy();
             
-            println!("\n--- Running policy: {:?} [{}/{}] ---", 
+            vlog!(VerbosityLevel::Normal, "\n--- Running policy: {:?} [{}/{}] ---", 
                      policy_arg, policy_idx + 1, policies.len());
             
             let paired_runs = run_paired_benchmark(user_id, repetitions, Some(policy))?;
@@ -114,19 +115,18 @@ fn run_user_profile_benchmark(args: &Args) -> Result<()> {
             // Merge into consolidated collection.
             all_paired_runs.extend(paired_runs);
             
-            println!(" Policy {:?} done", policy_arg);
+            vlog!(VerbosityLevel::Verbose, " Policy {:?} done", policy_arg);
         }
 
-        // Salvar TODOS os runs em um único CSV
         let timestamp = Local::now().timestamp();
         let filename = format!("results/resultados_experiment_{}.csv", timestamp);
         save_paired_runs_csv(&all_paired_runs, &filename)?;
 
-        println!("\n=== Benchmark Complete ===");
-        println!(" Runs: {} Classical↔Hybrid pairs per policy", repetitions);
-        println!(" Policies: {} (Paranoid, PQ3, Balanced, Relaxed)", policies.len());
-        println!(" Total records: {}", all_paired_runs.len());
-        println!(" CSV: {}", filename);
+        progress!("\n=== Benchmark Complete ===");
+        progress!(" Runs: {} Classical↔Hybrid pairs per policy", repetitions);
+        progress!(" Policies: {} (Paranoid, PQ3, Balanced, Relaxed)", policies.len());
+        progress!(" Total records: {}", all_paired_runs.len());
+        progress!(" CSV: {}", filename);
     } else {
         let policy = args.rotation_policy.map(|p| p.to_protocol_policy());
         let policy_name = match args.rotation_policy {
@@ -134,7 +134,7 @@ fn run_user_profile_benchmark(args: &Args) -> Result<()> {
             None => "All".to_string(),
         };
         
-        println!("Política: {} ({} repetições)\n", policy_name, repetitions);
+        progress!("Policy: {} ({} repetitions)\n", policy_name, repetitions);
         
         let results = run_paired_benchmark(user_id, repetitions, policy)?;
         
@@ -142,9 +142,9 @@ fn run_user_profile_benchmark(args: &Args) -> Result<()> {
         let filename = format!("results/resultados_experiment_{}.csv", timestamp);
         save_paired_runs_csv(&results, &filename)?;
         
-        println!("\n Saved: {}", filename);
+        progress!("\n Saved: {}", filename);
     }
 
-    println!("\nBenchmark complete.");
+    progress!("\nBenchmark complete.");
     Ok(())
 }

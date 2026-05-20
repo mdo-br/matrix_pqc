@@ -70,9 +70,9 @@ pub fn benchmark_room(
         .collect();
 
     if num_active_senders == 1 {
-        vlog!(VerbosityLevel::Verbose, "   - [SINGLE-USER] Configurando 1 sender ativo: {:?}", active_senders);
+        vlog!(VerbosityLevel::Verbose, "   - [SINGLE-USER] 1 active sender: {:?}", active_senders);
     } else {
-        vlog!(VerbosityLevel::Verbose, "   - [MULTI-SENDER] Configurando {} senders ativos: {:?}", num_active_senders, active_senders);
+        vlog!(VerbosityLevel::Verbose, "   - [MULTI-SENDER] {} active senders: {:?}", num_active_senders, active_senders);
     }
 
     let receiver_id = &members[num_active_senders % member_count];
@@ -293,17 +293,17 @@ pub fn run_paired_benchmark(
     repetitions: usize,
     rotation_policy: Option<RotationPolicy>,
 ) -> Result<Vec<PairedRun>> {
-    println!("\n=== Paired User Profile Benchmark ===\n");
+    progress!("\n=== Paired User Profile Benchmark ===\n");
 
     let profile = UserProfile::typical(user_id);
     let batch_id = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
     let policy = rotation_policy.unwrap_or(RotationPolicy::Balanced);
 
-    println!("Profile: {}", profile.user_id);
-    println!("  Rooms: {}", profile.total_rooms());
-    println!("  Olm sessions: {}", profile.total_olm_sessions());
-    println!("  Repetitions: {} Classical↔Hybrid pairs", repetitions);
-    println!("  Rotation policy: {:?}\n", policy);
+    vlog!(VerbosityLevel::Minimal, "Profile: {}", profile.user_id);
+    vlog!(VerbosityLevel::Minimal, "  Rooms: {}", profile.total_rooms());
+    vlog!(VerbosityLevel::Minimal, "  Olm sessions: {}", profile.total_olm_sessions());
+    vlog!(VerbosityLevel::Minimal, "  Repetitions: {} Classical↔Hybrid pairs", repetitions);
+    vlog!(VerbosityLevel::Minimal, "  Rotation policy: {:?}\n", policy);
 
     let mut all_runs = Vec::new();
 
@@ -340,7 +340,7 @@ pub fn run_paired_benchmark(
             rooms: second.rooms,
         });
 
-        println!();
+        vlog!(VerbosityLevel::Normal, "");
     }
 
     Ok(all_runs)
