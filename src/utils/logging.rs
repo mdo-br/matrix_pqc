@@ -1,35 +1,34 @@
-// Sistema de logging com níveis de verbosidade
-//
-// Permite controlar a quantidade de output durante experimentos
-// sem precisar recompilar o código.
+//! Verbosity-based logging system for experiment output control.
+//!
+//! Controls the amount of output produced during experiments without recompiling.
 
 use std::sync::atomic::{AtomicU8, Ordering};
 
-/// Níveis de verbosidade
+/// Verbosity levels for log output filtering.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(u8)]
 pub enum VerbosityLevel {
-    /// Nenhum output (apenas resultados finais)
+    /// No output (only final results).
     Silent = 0,
-    /// Output mínimo (apenas marcos importantes)
+    /// Minimal output (only important milestones).
     Minimal = 1,
-    /// Output normal (progresso + resultados)
+    /// Normal output (progress and results).
     Normal = 2,
-    /// Output detalhado (inclui operações individuais)
+    /// Detailed output (includes individual operations).
     Verbose = 3,
-    /// Output máximo (debug completo)
+    /// Maximum output (full debug).
     Debug = 4,
 }
 
-// Variável global atômica para controlar verbosidade
+// Global atomic variable controlling verbosity.
 static VERBOSITY: AtomicU8 = AtomicU8::new(VerbosityLevel::Normal as u8);
 
-/// Define o nível de verbosidade global
+/// Sets the global verbosity level.
 pub fn set_verbosity(level: VerbosityLevel) {
     VERBOSITY.store(level as u8, Ordering::Relaxed);
 }
 
-/// Obtém o nível de verbosidade atual
+/// Returns the current global verbosity level.
 pub fn get_verbosity() -> VerbosityLevel {
     match VERBOSITY.load(Ordering::Relaxed) {
         0 => VerbosityLevel::Silent,
@@ -41,12 +40,12 @@ pub fn get_verbosity() -> VerbosityLevel {
     }
 }
 
-/// Verifica se deve logar no nível especificado
+/// Returns `true` if the given level should produce output at the current verbosity.
 pub fn should_log(level: VerbosityLevel) -> bool {
     get_verbosity() >= level
 }
 
-/// Macro para log condicional baseado em verbosidade
+/// Logs a message if the current verbosity is at or above `$level`.
 #[macro_export]
 macro_rules! vlog {
     // vlog!(Minimal, "mensagem")
@@ -57,7 +56,7 @@ macro_rules! vlog {
     };
 }
 
-/// Macro para log de progresso (sempre visível, menos em Silent)
+/// Logs a progress message unless verbosity is `Silent`.
 #[macro_export]
 macro_rules! progress {
     ($($arg:tt)*) => {
@@ -67,7 +66,7 @@ macro_rules! progress {
     };
 }
 
-/// Macro para log de resultados (sempre visível)
+/// Logs a result message unconditionally.
 #[macro_export]
 macro_rules! result_log {
     ($($arg:tt)*) => {

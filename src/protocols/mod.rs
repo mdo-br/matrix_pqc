@@ -1,11 +1,10 @@
-//! Wrappers de Protocolo Matrix
+//! High-level wrappers for Matrix protocols.
 //!
-//! Este módulo contém wrappers de alto nível para os protocolos Matrix
-//! que oferecem APIs convenientes para desenvolvedores que querem usar
-//! criptografia pós-quântica em suas aplicações Matrix.
+//! Provides convenient APIs for developers integrating post-quantum
+//! cryptography into their Matrix applications.
 //!
-//! # Protocolos Disponíveis
+//! # Available Protocols
 //!
-//! - `room`: Abstração de sala Matrix com rotação de chaves
+//! - `room`: Matrix room abstraction with key rotation.
 
 pub mod room;

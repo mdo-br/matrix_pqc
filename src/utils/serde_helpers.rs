@@ -1,12 +1,12 @@
-/// Helpers serde para serializar/desserializar material criptográfico como
-/// Base64 na fronteira JSON.
-///
-/// Internamente os campos são bytes (`[u8; N]` ou `Vec<u8>`); Base64 aparece
-/// apenas no formato JSON, nunca nas interfaces internas entre módulos.
+//! Serde helpers for serializing and deserializing cryptographic material as
+//! Base64 at the JSON boundary.
+//!
+//! Fields are bytes internally (`[u8; N]` or `Vec<u8>`); Base64 appears only
+//! in the JSON format, never in internal module interfaces.
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use serde::{Deserializer, Serializer, Deserialize};
 
-/// Serializa `[u8; 32]` como Base64; desserializa Base64 → `[u8; 32]`.
+/// Serializes `[u8; 32]` as Base64 and deserializes Base64 back to `[u8; 32]`.
 pub mod bytes_32 {
     use super::*;
     pub fn serialize<S: Serializer>(bytes: &[u8; 32], s: S) -> Result<S::Ok, S::Error> {
@@ -19,7 +19,7 @@ pub mod bytes_32 {
     }
 }
 
-/// Serializa `[u8; 64]` como Base64; desserializa Base64 → `[u8; 64]`.
+/// Serializes `[u8; 64]` as Base64 and deserializes Base64 back to `[u8; 64]`.
 pub mod bytes_64 {
     use super::*;
     pub fn serialize<S: Serializer>(bytes: &[u8; 64], s: S) -> Result<S::Ok, S::Error> {
@@ -32,7 +32,7 @@ pub mod bytes_64 {
     }
 }
 
-/// Serializa `Vec<u8>` como Base64; desserializa Base64 → `Vec<u8>`.
+/// Serializes `Vec<u8>` as Base64 and deserializes Base64 back to `Vec<u8>`.
 pub mod vec_bytes {
     use super::*;
     pub fn serialize<S: Serializer>(bytes: &[u8], s: S) -> Result<S::Ok, S::Error> {

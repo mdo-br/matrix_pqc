@@ -1,24 +1,21 @@
-//! Módulo Core - Criptografia Híbrida PQC + Clássica para Matrix
+//! Core hybrid PQC + classical cryptography for Matrix.
 //!
-//! Implementa extensões pós-quânticas para o protocolo Matrix mantendo
-//! compatibilidade completa com a biblioteca vodozemac oficial.
+//! Post-quantum extensions for the Matrix protocol, fully compatible with
+//! the upstream vodozemac library.
 //!
-//! # Arquitetura
-//! 
-//! - `crypto`: Tipos fundamentais, traits e enums para provedores criptográficos
-//! - `pqxdh`: Protocolo de handshake híbrido (X25519 + Kyber-1024)
-//! - `double_ratchet_pqc`: Double Ratchet com ratcheting KEM automático
-//! - `providers`: Implementações concretas (clássica e híbrida)
+//! # Modules
 //!
-//! # Uso
+//! - `crypto`: Fundamental types, traits, and enums for crypto providers.
+//! - `pqxdh`: Hybrid handshake protocol (X25519 × 4 + Kyber-1024 KEM).
+//! - `double_ratchet_pqc`: Double Ratchet with automatic KEM ratcheting.
+//! - `providers`: Concrete provider implementations (classical and hybrid).
+//!
+//! # Example
 //!
 //! ```rust,ignore
 //! use matrix_pqc::core::VodoCryptoHybrid;
-//! 
-//! // Criar conta híbrida
+//!
 //! let mut alice = VodoCryptoHybrid::account_new(KemChoice::Kyber768);
-//! 
-//! // Exportar chaves públicas PQXDH
 //! let alice_keys = alice.export_pqxdh_public_keys();
 //! ```
 

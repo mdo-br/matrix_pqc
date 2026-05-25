@@ -1,31 +1,31 @@
-// Políticas e configuração de rotação de chaves Megolm
+//! Megolm key rotation policies and configuration.
 
-/// Política de rotação de chaves Megolm (presets para experimentos)
+/// Megolm key rotation policy (presets for experiments).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum RotationPolicy {
-    /// Paranoid: Máxima segurança (rotação muito frequente)
-    /// - 25 mensagens ou 12 horas
-    /// - Rotação em qualquer mudança de membros
+    /// Paranoid: maximum security (very frequent rotation).
+    /// - 25 messages or 12 hours.
+    /// - Rotate on any membership change.
     Paranoid,
 
-    /// PQ3: Inspirado no Apple PQ3 (rotação frequente)
-    /// - 50 mensagens ou 1 dia
-    /// - Rotação em mudanças de membros
+    /// PQ3: inspired by Apple PQ3 (frequent rotation).
+    /// - 50 messages or 1 day.
+    /// - Rotate on membership changes.
     PQ3,
 
-    /// Balanced: Equilíbrio segurança/performance (padrão Matrix)
-    /// - 100 mensagens ou 7 dias
-    /// - Rotação em mudanças de membros
+    /// Balanced: security/performance trade-off (Matrix default).
+    /// - 100 messages or 7 days.
+    /// - Rotate on membership changes.
     Balanced,
 
-    /// Relaxed: Desempenho prioritário (rotação espaçada)
-    /// - 250 mensagens ou 30 dias
-    /// - Sem rotação automática em mudanças de membros
+    /// Relaxed: performance-first (infrequent rotation).
+    /// - 250 messages or 30 days.
+    /// - No automatic rotation on membership changes.
     Relaxed,
 }
 
 impl RotationPolicy {
-    /// Converte política para configuração concreta
+    /// Converts the policy into a concrete rotation configuration.
     pub fn to_config(&self) -> RotationConfig {
         match self {
             RotationPolicy::Paranoid => RotationConfig {
@@ -62,16 +62,16 @@ impl Default for RotationPolicy {
     }
 }
 
-/// Configuração de rotação de chaves Megolm
+/// Megolm key rotation configuration.
 #[derive(Debug, Clone)]
 pub struct RotationConfig {
-    /// Rotação a cada N mensagens
+    /// Rotate after this many messages.
     pub max_messages: usize,
-    /// Rotação a cada N milissegundos (simulando dias)
+    /// Rotate after this many milliseconds.
     pub max_age_ms: u64,
-    /// Rotação quando novo membro entra
+    /// Rotate when a new member joins.
     pub rotate_on_member_join: bool,
-    /// Rotação quando membro sai
+    /// Rotate when a member leaves.
     #[allow(dead_code)]
     pub rotate_on_member_leave: bool,
 }

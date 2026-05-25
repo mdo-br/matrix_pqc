@@ -1,7 +1,7 @@
-// Core cryptographic types and traits.
-//
-// Defines fundamental types, traits, and enums shared by all crypto provider
-// implementations (classical and hybrid PQC).
+//! Core cryptographic types and traits.
+//!
+//! Defines fundamental types, traits, and enums shared by all crypto provider
+//! implementations (classical and hybrid PQC).
 
 use anyhow::Result;
 use serde::{Serialize, Deserialize};

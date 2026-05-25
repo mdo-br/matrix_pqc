@@ -1,6 +1,4 @@
-// Utilitários gerais
-//
-// Módulo para funcionalidades auxiliares e ferramentas compartilhadas
+//! General utility modules: logging and serde helpers.
 
 pub mod logging;
 pub mod serde_helpers;
