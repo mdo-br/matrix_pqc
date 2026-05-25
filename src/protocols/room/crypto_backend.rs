@@ -1,4 +1,4 @@
-// Provedor criptográfico unificado para salas Matrix
+//! Unified cryptographic provider for Matrix rooms.
 
 use anyhow::Result;
 use crate::core::{
@@ -8,16 +8,16 @@ use crate::core::{
 use crate::core::providers::hybrid::VodoCryptoHybrid;
 use crate::core::providers::classical::VodoCrypto;
 
-/// Modo criptográfico da sala
+/// Room cryptographic mode.
 #[derive(Debug, Clone, PartialEq)]
 pub enum CryptoMode {
-    /// Modo híbrido com CRYSTALS-Kyber + X25519
+    /// Hybrid mode: CRYSTALS-Kyber + X25519.
     Hybrid,
-    /// Modo clássico apenas com X25519
+    /// Classical mode: X25519 only.
     Classical,
 }
 
-/// Provedor criptográfico unificado (híbrido ou clássico)
+/// Unified cryptographic provider (hybrid or classical).
 pub enum CryptoWrapper {
     Hybrid(VodoCryptoHybrid),
     Classical(VodoCrypto),

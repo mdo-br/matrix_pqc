@@ -1,8 +1,7 @@
-// Abstração de Sala Matrix para Experimentos PQC
-//
-// Este módulo implementa uma abstração de sala Matrix para experimentos
-// comparativos, simulando comunicação em grupo e distribuição de chaves
-// Megolm via canais Olm híbridos versus clássicos.
+//! Matrix room abstraction for PQC experiments.
+//!
+//! Implements an experimental Matrix room for comparative studies, simulating
+//! group communication and Megolm key distribution over hybrid vs classical Olm channels.
 
 pub mod rotation;
 pub mod crypto_backend;
@@ -22,111 +21,112 @@ use crate::core::crypto::MegolmOutbound;
 use crate::utils::logging::VerbosityLevel;
 use crate::vlog;
 
-/// Sala Matrix experimental com suporte PQC
-/// 
-/// Sempre usa modo multi-sender (qualquer membro pode enviar mensagens).
-/// O padrão de tráfego determina a frequência de rekeying do Double Ratchet.
+/// Experimental Matrix room with PQC support.
+///
+/// Always operates in multi-sender mode (any member may send messages).
+/// The traffic pattern determines the Double Ratchet rekeying frequency.
 pub struct MatrixRoom {
-    /// ID da sala
+    /// Room identifier.
     pub room_id: String,
-    /// Modo criptográfico (híbrido ou clássico)
+    /// Cryptographic mode (hybrid or classical).
     pub crypto_mode: CryptoMode,
-    /// Membros da sala
+    /// Room members.
     pub members: HashMap<UserId, RoomMember>,
-    /// Sessões Megolm outbound por sender (cada membro tem sua própria sessão)
+    /// Outbound Megolm sessions per sender (each member owns one).
     pub sender_sessions: HashMap<UserId, MegolmOutbound>,
-    /// Política de rotação (Paranoid/Balanced/Relaxed)
+    /// Key rotation policy (Paranoid/Balanced/Relaxed).
     pub rotation_policy: RotationPolicy,
-    /// Configuração de rotação
+    /// Concrete rotation configuration.
     pub rotation_config: RotationConfig,
-    /// Estatísticas da sessão atual
+    /// Statistics for the current session.
     pub current_session_stats: MegolmSessionStats,
-    /// Histórico de sessões
+    /// History of past sessions.
     pub session_history: Vec<MegolmSessionStats>,
-    /// Contador de rotações de sessão Megolm
+    /// Number of Megolm session rotations.
     pub rotation_count: usize,
-    /// Contador de mensagens na sessão atual (global)
+    /// Global message counter for the current session.
     pub message_count: usize,
-    /// Contador de mensagens por sender
+    /// Per-sender message counter.
     pub message_count_per_sender: HashMap<UserId, usize>,
-    /// Timestamp da criação da sessão atual
+    /// Creation timestamp of the current session.
     pub session_start_time: std::time::Instant,
-    /// Rastreamento de largura de banda (bytes)
-    pub bandwidth_key_exchange: usize,     // Public keys (identity + PQXDH) - BUNDLE COMPLETO
-    pub bandwidth_session_distribution: usize,  // Megolm session keys via Olm
-    pub bandwidth_rekeying: usize,         // Double Ratchet PQC (troca de direção)
-    pub bandwidth_messages: usize,         // Megolm encrypted messages
-    
+    /// Bandwidth tracking in bytes.
+    pub bandwidth_key_exchange: usize,          // Public keys (identity + PQXDH) — full bundle.
+    pub bandwidth_session_distribution: usize,  // Megolm session keys over Olm.
+    pub bandwidth_rekeying: usize,              // Double Ratchet PQC (direction change).
+    pub bandwidth_messages: usize,              // Megolm encrypted messages.
+
     // ============================================================================
-    // MÉTRICAS REFINADAS - Duas Comparações Independentes
+    // REFINED METRICS — Two independent comparisons
     // ============================================================================
-    
-    /// COMPARAÇÃO 1: Overhead PQC (Clássico vs Híbrido)
-    /// Apenas controle (acordo + distribuição + rotação) - Megolm messages EXCLUÍDAS
-    
-    // ========== 1.1) ACORDO (PQXDH/3DH Handshake) ==========
-    // PROTOCOLO COMPLETO (medição via PreKeyMessage)
-    pub bandwidth_agreement: usize,             // Total do protocolo (Bundle + PreKeyMessage)
-    pub bandwidth_agreement_classical: usize,   // Componentes clássicos do protocolo
-    pub bandwidth_agreement_pqc: usize,         // Componentes PQC do protocolo
-    
-    // PRIMITIVAS ISOLADAS (medição direta dos componentes criptográficos)
-    pub bandwidth_agreement_primitives_identity_keys: usize,  // Curve25519 + Ed25519 (64B)
-    pub bandwidth_agreement_primitives_otk: usize,            // One-Time Key (32B)
-    pub bandwidth_agreement_primitives_kyber1024: usize,      // Public key Kyber-1024 (~1568B)
-    pub bandwidth_agreement_primitives_prekey_overhead: usize, // Overhead de serialização (JSON, base64, etc)
-    
-    // ========== 1.2) DISTRIBUIÇÃO INICIAL ==========
-    // PROTOCOLO COMPLETO (mensagens Olm com session key Megolm)
-    pub bandwidth_initial_distribution: usize,          // Total do protocolo
-    pub bandwidth_initial_distribution_classical: usize, // Componentes clássicos
-    pub bandwidth_initial_distribution_pqc: usize,       // Componentes PQC
-    
-    // PRIMITIVAS ISOLADAS
-    pub bandwidth_initial_distribution_primitives_megolm_key: usize,  // Chave Megolm (308B)
-    pub bandwidth_initial_distribution_primitives_ratchet_key: usize, // Ratchet key (32B ou 1219B)
-    pub bandwidth_initial_distribution_primitives_kem_ct: usize,      // KEM ciphertext (~1088B)
-    pub bandwidth_initial_distribution_primitives_olm_overhead: usize, // Overhead Olm message
-    
-    // ========== 1.3) ROTAÇÃO ==========
-    // PROTOCOLO COMPLETO (redistribuição de nova session key)
-    pub bandwidth_rotation: usize,              // Total do protocolo
-    pub bandwidth_rotation_classical: usize,    // Componentes clássicos
-    pub bandwidth_rotation_pqc: usize,          // Componentes PQC
-    
-    // PRIMITIVAS ISOLADAS
-    pub bandwidth_rotation_primitives_megolm_key: usize,     // Nova chave Megolm (308B)
-    pub bandwidth_rotation_primitives_ratchet_key: usize,    // Ratchet key atualizada
-    pub bandwidth_rotation_primitives_kem_ct: usize,         // KEM ciphertext
-    pub bandwidth_rotation_primitives_olm_overhead: usize,   // Overhead Olm message
-    
-    pub bandwidth_megolm_messages: usize,       // 1.4) Mensagens Megolm (NÃO CONTA PARA PQC)
-    
-    /// COMPARAÇÃO 2: Controle vs Dados
-    pub bandwidth_control_plane: usize,         // Acordo + Distribuição + Rotação (TOTAL)
-    pub bandwidth_data_plane: usize,            // Mensagens Megolm cifradas (TOTAL)
-    
-    /// Rastreamento de tempo (milissegundos) - ALINHADO COM LARGURA DE BANDA
-    pub time_agreement_ms: f64,              // Agreement: estabelecer TODAS as sessões Olm (PQXDH/3DH)
-    pub time_initial_distribution_ms: f64,   // Initial Distribution: distribuir Megolm key via Olm
-    pub time_rotation_ms: f64,               // Rotation: redistribuir nova Megolm key via Olm
-    pub time_messages_ms: f64,               // Messages: encriptação/decriptação Megolm
-    /// Flag para indicar se estamos na fase de setup (create_sessions)
+
+    /// COMPARISON 1: PQC overhead (Classical vs Hybrid).
+    /// Control plane only (agreement + distribution + rotation) — Megolm messages excluded.
+
+    // ========== 1.1) AGREEMENT (PQXDH/3DH Handshake) ==========
+    // Full protocol (measured via PreKeyMessage).
+    pub bandwidth_agreement: usize,             // Total protocol bytes (Bundle + PreKeyMessage).
+    pub bandwidth_agreement_classical: usize,   // Classical components.
+    pub bandwidth_agreement_pqc: usize,         // PQC components.
+
+    // Isolated primitives (direct measurement of cryptographic components).
+    pub bandwidth_agreement_primitives_identity_keys: usize,   // Curve25519 + Ed25519 (64 B).
+    pub bandwidth_agreement_primitives_otk: usize,             // One-Time Key (32 B).
+    pub bandwidth_agreement_primitives_kyber1024: usize,       // Kyber-1024 public key (~1568 B).
+    pub bandwidth_agreement_primitives_prekey_overhead: usize, // Serialisation overhead (JSON, base64…).
+
+    // ========== 1.2) INITIAL DISTRIBUTION ==========
+    // Full protocol (Olm messages carrying Megolm session key).
+    pub bandwidth_initial_distribution: usize,           // Total protocol bytes.
+    pub bandwidth_initial_distribution_classical: usize, // Classical components.
+    pub bandwidth_initial_distribution_pqc: usize,       // PQC components.
+
+    // Isolated primitives.
+    pub bandwidth_initial_distribution_primitives_megolm_key: usize,  // Megolm key (308 B).
+    pub bandwidth_initial_distribution_primitives_ratchet_key: usize, // Ratchet key (32 B or 1219 B).
+    pub bandwidth_initial_distribution_primitives_kem_ct: usize,      // KEM ciphertext (~1088 B).
+    pub bandwidth_initial_distribution_primitives_olm_overhead: usize, // Olm message overhead.
+
+    // ========== 1.3) ROTATION ==========
+    // Full protocol (redistribution of new session key).
+    pub bandwidth_rotation: usize,              // Total protocol bytes.
+    pub bandwidth_rotation_classical: usize,    // Classical components.
+    pub bandwidth_rotation_pqc: usize,          // PQC components.
+
+    // Isolated primitives.
+    pub bandwidth_rotation_primitives_megolm_key: usize,     // New Megolm key (308 B).
+    pub bandwidth_rotation_primitives_ratchet_key: usize,    // Updated ratchet key.
+    pub bandwidth_rotation_primitives_kem_ct: usize,         // KEM ciphertext.
+    pub bandwidth_rotation_primitives_olm_overhead: usize,   // Olm message overhead.
+
+    pub bandwidth_megolm_messages: usize,       // 1.4) Megolm messages (NOT counted for PQC overhead).
+
+    /// COMPARISON 2: Control plane vs Data plane.
+    pub bandwidth_control_plane: usize,         // Agreement + Distribution + Rotation (total).
+    pub bandwidth_data_plane: usize,            // Encrypted Megolm messages (total).
+
+    /// Time tracking in milliseconds — aligned with bandwidth phases.
+    pub time_agreement_ms: f64,             // Agreement: establish all Olm sessions (PQXDH/3DH).
+    pub time_initial_distribution_ms: f64,  // Initial distribution: send Megolm key over Olm.
+    pub time_rotation_ms: f64,              // Rotation: redistribute new Megolm key over Olm.
+    pub time_messages_ms: f64,             // Messages: Megolm encryption/decryption.
+    /// Flag indicating the setup phase (create_sessions) is active.
     pub in_setup_phase: bool,
-    /// Flag para indicar se estamos na fase de rotação (rotate_megolm)
+    /// Flag indicating the rotation phase (rotate_megolm) is active.
     pub in_rotation_phase: bool,
-    
-    /// ACTIVE SENDERS: Lista de senders que devem ter suas métricas contabilizadas
-    /// Sessões Olm são criadas eagerly (N×(N-1) para PQXDH), mas só contabilizamos
-    /// bandwidth/tempo das que pertencem aos senders ativos (experiência do usuário)
+
+    /// Active senders whose metrics are counted.
+    ///
+    /// Olm sessions are created eagerly (N×(N-1) for PQXDH), but only the sessions
+    /// belonging to active senders contribute to bandwidth/time measurements.
     pub active_senders: std::collections::HashSet<String>,
-    
-    /// Rastreamento de avanços do Double Ratchet
-    pub num_ratchet_advances: usize,       // Total de avanços (simétricos + assimétricos)
-    pub num_asymmetric_advances: usize,    // Apenas mudanças de direção (Inactive↔Active)
-    
-    /// CONTADOR DE MENSAGENS DE ROTAÇÃO (para validar bandwidth_rotation)
-    pub num_rotation_messages: usize,      // Mensagens enviadas durante rotação (real, não estimado)
+
+    /// Double Ratchet advance tracking.
+    pub num_ratchet_advances: usize,    // Total advances (symmetric + asymmetric).
+    pub num_asymmetric_advances: usize, // Direction changes only (Inactive↔Active).
+
+    /// Rotation message counter (actual messages sent during rotation, not an estimate).
+    pub num_rotation_messages: usize,
 }
 
 #[allow(dead_code)]
@@ -152,7 +152,7 @@ impl MatrixRoom {
             bandwidth_rekeying: 0,
             bandwidth_messages: 0,
             
-            // COMPARAÇÃO 1: Overhead PQC - Protocolo completo
+            // COMPARISON 1: PQC overhead — full protocol.
             bandwidth_agreement: 0,
             bandwidth_agreement_classical: 0,
             bandwidth_agreement_pqc: 0,
@@ -182,7 +182,7 @@ impl MatrixRoom {
             bandwidth_rotation_primitives_kem_ct: 0,
             bandwidth_rotation_primitives_olm_overhead: 0,
             
-            // COMPARAÇÃO 2: Controle vs Dados
+            // COMPARISON 2: Control vs. data plane.
             bandwidth_control_plane: 0,
             bandwidth_data_plane: 0,
             
@@ -199,32 +199,32 @@ impl MatrixRoom {
         }
     }
 
-    /// Cria sala híbrida com política específica
+    /// Creates a new hybrid room with the given policy.
     pub fn new_hybrid(room_id: String, policy: RotationPolicy) -> Self {
         Self::new(room_id, CryptoMode::Hybrid, policy)
     }
 
-    /// Cria sala clássica com política específica
+    /// Creates a new classical room with the given policy.
     pub fn new_classical(room_id: String, policy: RotationPolicy) -> Self {
         Self::new(room_id, CryptoMode::Classical, policy)
     }
 
-    /// Adiciona membro à sala
+    /// Adds a member to the room.
     pub fn add_member(&mut self, user_id: UserId) -> Result<()> {
         if self.members.contains_key(&user_id) {
-            return Ok(()); // Já é membro
+            return Ok(()); // Already a member.
         }
 
         let member = RoomMember::new(user_id.clone(), self.crypto_mode.clone());
         self.members.insert(user_id.clone(), member);
 
-        // LAZY SESSION: Sessões Olm serão criadas sob demanda via ensure_olm_session()
-        // quando um sender precisar enviar mensagem para este membro.
-        // A init_message PQXDH é transmitida automaticamente durante criação da sessão.
-        // Não criamos sessões eagerly - apenas quando necessário para envio real.
+        // LAZY SESSION: Olm sessions are created on demand via ensure_olm_session()
+        // when a sender needs to send a message to this member.
+        // The PQXDH init_message is transmitted automatically during session creation.
+        // Sessions are not created eagerly — only when actually needed for sending.
         vlog!(VerbosityLevel::Debug, "   - Membro {} adicionado (sessões Olm criadas sob demanda)", user_id);
         
-        // Rotacionar chaves se configurado (cria novas sessões Megolm para todos)
+        // Rotate keys if configured (creates new Megolm sessions for all members).
         if self.rotation_config.rotate_on_member_join && !self.sender_sessions.is_empty() {
             self.rotate_all_sessions(format!("member_join:{}", user_id))?;
         }
@@ -237,13 +237,13 @@ impl MatrixRoom {
         Ok(())
     }
 
-    /// Remove membro da sala
+    /// Removes a member from the room.
     pub fn remove_member(&mut self, user_id: &str) -> Result<()> {
         if self.members.remove(user_id).is_none() {
-            return Ok(()); // Não era membro
+            return Ok(()); // Was not a member.
         }
 
-        // Remover sessões Megolm do membro removido
+        // Remove Megolm sessions for the removed member.
         self.sender_sessions.remove(user_id);
         self.message_count_per_sender.remove(user_id);
 

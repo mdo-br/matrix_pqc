@@ -22,7 +22,7 @@ fn test_workload_config_new() {
 fn test_message_generator() {
     let mut gen = MessageGenerator::new(UsageScenario::SmallChat);
 
-    // Gerar 100 mensagens e verificar distribuição aproximada
+    // Generate 100 messages and verify approximate distribution.
     let mut text_count = 0;
     let mut image_count = 0;
 
@@ -36,7 +36,7 @@ fn test_message_generator() {
 
     // SmallChat deveria ter ~85% texto
     assert!(text_count > 70, "Esperado >70% texto, obteve {}%", text_count);
-    // Teste probabilístico: aceitar >= 4% devido à variância estatística com n=100
+    // Probabilistic test: accept >= 4% due to statistical variance with n=100.
     assert!(image_count >= 4, "Esperado >=4% imagem, obteve {}%", image_count);
 }
 

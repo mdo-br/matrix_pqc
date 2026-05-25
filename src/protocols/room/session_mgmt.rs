@@ -9,16 +9,17 @@ use super::*;
 
 #[allow(dead_code)]
 impl MatrixRoom {
-    /// Cria sessão Olm OUTBOUND sem gerar PreKeyMessage antecipadamente
-    /// PreKeyMessage será gerada AUTOMATICAMENTE na primeira encrypt()
-    /// 
-    /// # Retorno
-    /// Tupla (OlmSessionHandle, Option<MatrixPqxdhInitMessage>)
+    /// Creates an outbound Olm session without pre-generating the PreKeyMessage.
+    ///
+    /// The PreKeyMessage is generated automatically on the first `encrypt()` call.
+    ///
+    /// # Returns
+    /// A tuple `(OlmSessionHandle, Option<MatrixPqxdhInitMessage>)`.
     pub(crate) fn create_outbound_olm_session_only(&mut self, sender_id: &str, receiver_id: &str) -> Result<(OlmSessionHandle, Option<crate::core::pqxdh::MatrixPqxdhInitMessage>)> {
         let _start_time = std::time::Instant::now();
         
-        // VERIFICAR SE SENDER ESTÁ ATIVO (para contabilizar métricas)
-        // Sessões são criadas eagerly (N×(N-1) para PQXDH), mas só contamos as dos senders ativos
+        // Check whether the sender is active (for metric accounting).
+        // Sessions are created eagerly (N×(N-1) for PQXDH), but only active senders are counted.
         let should_count = self.active_senders.contains(sender_id);
         
         // Obter chaves de identidade e PQXDH do receptor
@@ -34,25 +35,25 @@ impl MatrixRoom {
             
             // CONTABILIZAR APENAS SE SENDER ATIVO
             if should_count {
-                // Contabilização LEGACY (bundle completo - mantido para comparação)
+                // Legacy accounting (full bundle — kept for comparison).
                 self.bandwidth_key_exchange += curve_size + ed_size;
-                
-                // PRIMITIVAS ISOLADAS: Identity Keys
+
+                // Isolated primitives: Identity Keys.
                 self.bandwidth_agreement_primitives_identity_keys += curve_size + ed_size;
-                
-                // COMPARAÇÃO 2: CONTROLE (acordo é parte do controle)
+
+                // Comparison 2: control plane (agreement is part of control).
                 self.bandwidth_control_plane += curve_size + ed_size;
             }
             
-            // Se híbrido, adicionar tamanho das chaves PQXDH
+            // If hybrid, add the PQXDH key sizes.
             if let Some(ref pqxdh) = pqxdh_keys {
                 if should_count {
-                    // LEGACY: Conta bundle completo (DUPLICA chaves clássicas!)
+                    // Legacy: counts full bundle (DUPLICATES classical keys!).
                     let pqxdh_json_str = serde_json::to_string(pqxdh).unwrap_or_default();
                     self.bandwidth_key_exchange += pqxdh_json_str.len();
                 }
                 
-                // PRIMITIVAS ISOLADAS: Kyber-1024 public key
+                // Isolated primitives: Kyber-1024 public key.
                 if let Some(kyber_prekey) = pqxdh.get("prekeys")
                     .and_then(|p| p.get("kyber1024")) {
                     let kyber_json = serde_json::to_string(kyber_prekey).unwrap_or_default();
@@ -96,7 +97,7 @@ impl MatrixRoom {
             .context("Remetente não encontrado")?
             .crypto;
 
-        // Criar sessão Olm OUTBOUND
+        // Create the Olm OUTBOUND session.
         let session_result = match sender_crypto {
             CryptoWrapper::Hybrid(crypto) => {
                 if let Some(pqxdh_keys) = receiver_pqxdh_keys {
@@ -124,23 +125,22 @@ impl MatrixRoom {
             .map_err(|e| anyhow::anyhow!("Erro ao criar sessão Olm outbound: {:?}", e))?;
 
         // ============================================================================
-        // MEDIÇÃO REAL DE AGREEMENT: Identity Keys Bundle (JSON serializado)
+        // REAL AGREEMENT MEASUREMENT: Identity Keys Bundle (serialised JSON)
         // ============================================================================
-        // No Matrix, Agreement = Upload/Download de Identity Keys Bundle no servidor
-        // Medimos o tamanho REAL do bundle JSON completo
-        
+        // In Matrix, Agreement = uploading/downloading the Identity Keys Bundle from the server.
+        // We measure the actual size of the full JSON bundle.
         if should_count {
-            // Agreement = Identity Keys Bundle JSON
-            // Já medimos as primitivas (identity, OTK, kyber1024)
-            // Agora calculamos o bundle completo com overhead JSON REAL
-            
+            // Agreement = Identity Keys Bundle JSON.
+            // Primitives already measured (identity, OTK, kyber1024).
+            // Now compute the full bundle with real JSON overhead.
+
             let primitives_total = self.bandwidth_agreement_primitives_identity_keys
                                  + self.bandwidth_agreement_primitives_otk
                                  + self.bandwidth_agreement_primitives_kyber1024;
-            
-            // Overhead JSON estrutural: chaves do objeto, vírgulas, aspas, colchetes
-            // Estrutura: {"curve25519":"...","ed25519":"...","one_time_keys":{...},"pqxdh":{...}}
-            // Estimativa conservadora baseada em estrutura JSON típica: ~15% das primitivas
+
+            // JSON structural overhead: object keys, commas, quotes, brackets.
+            // Structure: {"curve25519":"...","ed25519":"...","one_time_keys":{...},"pqxdh":{...}}
+            // Conservative estimate based on typical JSON structure: ~15% of primitives.
             let json_structural_overhead = (primitives_total as f64 * 0.15) as usize;
             
             let bundle_size = primitives_total + json_structural_overhead;
@@ -181,75 +181,75 @@ impl MatrixRoom {
                   bundle_size, primitives_total, json_overhead);
         }
 
-        // CONTABILIZAR INIT_MESSAGE (overhead PQXDH adicional - transmissão sender→receiver)
+        // CONTABILIZAR INIT_MESSAGE (PQXDH additional overhead — sender→receiver transmission).
         if let Some(ref init_msg) = init_message_opt {
             if should_count {
-                // Serializar init_message para medir tamanho real
                 let init_msg_json = serde_json::to_string(init_msg).unwrap_or_default();
                 let init_msg_size = init_msg_json.len();
-                
-                // PRIMITIVAS ISOLADAS: Init message já incluída no Kyber-1024
-                // (não adicionar novamente, evitar duplicação)
-                
+
+                // Isolated primitives: init message already included in Kyber-1024.
+                // Do NOT add again to avoid double-counting.
+
                 self.bandwidth_control_plane += init_msg_size;
-                
-                // LEGACY: também contabilizar para compatibilidade
+
+                // Legacy: also account for compatibility.
                 self.bandwidth_key_exchange += init_msg_size;
-                
+
                 vlog!(VerbosityLevel::Debug, "     - Init message PQXDH: {} bytes (sender→receiver)", init_msg_size);
             }
         }
 
-        // NOTA: Tempo de Agreement será medido GLOBALMENTE em create_sessions()
-        // (não medir fragmentadamente aqui - seria parcial)
+        // NOTE: Agreement time is measured GLOBALLY in create_sessions(),
+        // not here (partial measurement would be inaccurate).
 
         Ok((session, init_message_opt))
     }
 
-    /// NÃO CRIA sessão inbound antecipadamente - aguarda PreKeyMessage
-    /// 
-    /// IMPORTANTE: Na arquitetura oficial vodozemac, inbound sessions SÓ são criadas
-    /// ao receber PreKeyMessage via create_inbound_session(). Não há como criar
-    /// inbound session antecipadamente.
-    /// 
-    /// Solução: Deixar inbound = None no OlmSessionPair até receber primeira mensagem.
-    /// A primeira mensagem será PreKeyMessage e irá criar a inbound session automaticamente.
+    /// Does NOT create an inbound session eagerly — waits for a PreKeyMessage.
     ///
-    /// Esta função existe apenas para documentação - não deve ser chamada.
+    /// In the official vodozemac architecture, inbound sessions can ONLY be created
+    /// upon receiving a PreKeyMessage via `create_inbound_session()`. There is no way
+    /// to create one pre-emptively.
+    ///
+    /// Solution: leave `inbound = None` in `OlmSessionPair` until the first message
+    /// arrives. That first message will be a PreKeyMessage and will create the inbound
+    /// session automatically.
+    ///
+    /// This function exists for documentation purposes only — it must not be called.
     #[allow(dead_code)]
     fn create_inbound_olm_session_only(&mut self, _receiver_id: &str, _sender_id: &str) -> Result<OlmSessionHandle> {
-        // Retornar erro indicando que esta função não deve ser usada
+        // Return an error indicating this function must not be used.
         Err(anyhow::anyhow!(
             "ERRO DE ARQUITETURA: Inbound sessions só podem ser criadas ao receber PreKeyMessage. \
              Use decrypt_megolm_key_via_olm_multi_sender() que criará automaticamente."
         ))
     }
 
-    /// WARM-UP: Estabelece peer_key em sessões Olm via troca de mensagens de teste
-    /// 
-    /// # Motivação
-    /// Para medir overhead PQC do forced ratchet nas rotações, precisamos que as
-    /// sessões Olm tenham `their_ratchet_key` (peer_key) estabelecido. Isso só
-    /// acontece quando o RECEIVER envia uma mensagem DE VOLTA para o sender.
-    /// 
-    /// # Estratégia
-    /// Para cada sessão Olm outbound existente (já criadas para senders ativos):
-    /// 1. Sender → Receiver: Enviar mensagem de teste (estabelece inbound no receiver)
-    /// 2. Receiver → Sender: Enviar resposta (estabelece peer_key no outbound do sender)
-    /// 
-    /// # Custo
-    /// - Setup: 2 × N mensagens Olm por sender (ida + volta)
-    /// - Rotação: Habilita medição correta do forced ratchet KEM
-    /// 
-    /// # Quando usar
-    /// Apenas em modo Hybrid para estudos de FS/PCS com rotação PQC
+    /// WARM-UP: Establishes `peer_key` in Olm sessions via test message exchange.
+    ///
+    /// # Motivation
+    /// To measure the PQC overhead of forced ratchet during rotations, Olm sessions
+    /// must have `their_ratchet_key` (peer_key) set. This only happens when the
+    /// RECEIVER sends a message BACK to the sender.
+    ///
+    /// # Strategy
+    /// For each existing outbound Olm session (already created for active senders):
+    /// 1. Sender → Receiver: send a test message (establishes inbound on receiver).
+    /// 2. Receiver → Sender: send a reply (establishes peer_key on sender's outbound).
+    ///
+    /// # Cost
+    /// - Setup: 2 × N Olm messages per sender (round-trip).
+    /// - Rotation: enables correct measurement of the forced ratchet KEM.
+    ///
+    /// # When to use
+    /// Only in Hybrid mode for FS/PCS studies with PQC rotation.
     pub fn warmup_olm_sessions_for_pqc(&mut self) -> Result<()> {
         vlog!(VerbosityLevel::Verbose, "   - [WARM-UP PQC] Trocando mensagens Olm para estabelecer peer_key...");
         
-        let test_message = b"warmup"; // Mensagem mínima
+        let test_message = b"warmup"; // minimal message
         let mut exchanges = 0;
-        
-        // Coletar todas as sessões que precisam de warm-up
+
+        // Collect all sessions that need warm-up.
         let mut sessions_to_warmup: Vec<(String, String)> = Vec::new();
         
         for (member_id, member) in &self.members {
@@ -262,15 +262,14 @@ impl MatrixRoom {
         
         vlog!(VerbosityLevel::Debug, "   - {} sessões Olm outbound encontradas para warm-up", sessions_to_warmup.len());
         
-        // Para cada sessão outbound:
-        // 1. Sender encrypta e envia mensagem para receiver
-        // 2. Receiver decrypt (cria inbound se necessário)
-        // 3. Receiver encrypta resposta de volta para sender  
-        // 4. Sender decrypt resposta (estabelece peer_key no outbound!)
-        
+        // For each outbound session:
+        // 1. Sender encrypts and sends to receiver.
+        // 2. Receiver decrypts (creates inbound if needed).
+        // 3. Receiver encrypts a reply back to sender.
+        // 4. Sender decrypts reply (establishes peer_key on the outbound!).
         for (sender_id, receiver_id) in &sessions_to_warmup {
             //  ═══════════════════════════════════════════════════════════════
-            // PASSO 1: Sender → Receiver (estabelece inbound no receiver)
+            // STEP 1: Sender → Receiver (establishes inbound on receiver).
             // ═══════════════════════════════════════════════════════════════
             let encrypted_forward = {
                 let sender = self.members.get_mut(sender_id)
@@ -296,7 +295,7 @@ impl MatrixRoom {
                 let olm_pair = receiver.olm_sessions.entry(sender_id.clone())
                     .or_insert_with(OlmSessionPair::new);
                 
-                // Criar inbound se não existe
+                // Create inbound if it does not exist yet.
                 if olm_pair.inbound.is_none() {
                     match receiver.crypto.create_inbound_session(&sender_identity, &encrypted_forward) {
                         Ok((inbound_session, _)) => {
@@ -317,11 +316,10 @@ impl MatrixRoom {
             }
             
             // ═══════════════════════════════════════════════════════════════
-            // PASSO 2: Receiver → Sender (estabelece peer_key no outbound do sender!)
+            // STEP 2: Receiver → Sender (establishes peer_key on sender's outbound).
             // ═══════════════════════════════════════════════════════════════
-            
-            // Receiver precisa ter sessão outbound de volta para sender
-            // Se não existe, criar agora
+
+            // Receiver needs an outbound session back to sender; create one if missing.
             let encrypted_response = {
                 // Verificar/criar outbound do receiver para sender
                 let needs_outbound = {
@@ -360,7 +358,7 @@ impl MatrixRoom {
                 receiver.crypto.olm_encrypt(outbound, test_message)
             };
             
-            // Sender processa resposta (cria inbound se necessário)
+            // Sender processes the response (creates inbound session if needed).
             {
                 let receiver_identity = {
                     let receiver = self.members.get(receiver_id)
@@ -373,7 +371,7 @@ impl MatrixRoom {
                 let olm_pair = sender.olm_sessions.entry(receiver_id.clone())
                     .or_insert_with(OlmSessionPair::new);
                 
-                // Criar inbound se não existe
+                // Create inbound if it does not exist yet.
                 if olm_pair.inbound.is_none() {
                     match sender.crypto.create_inbound_session(&receiver_identity, &encrypted_response) {
                         Ok((inbound_session, _)) => {
@@ -394,13 +392,13 @@ impl MatrixRoom {
             }
             
             // ═══════════════════════════════════════════════════════════════
-            // PASSO 3: Sender → Receiver NOVAMENTE (ESTABELECE peer_key no outbound!)
+            // STEP 3: Sender → Receiver AGAIN (establishes peer_key on outbound!).
             // ═══════════════════════════════════════════════════════════════
-            // CRÍTICO: No protocolo Olm Double Ratchet, their_ratchet_key só é
-            // estabelecido no outbound quando enviamos uma SEGUNDA mensagem APÓS
-            // ter recebido a resposta do peer. A primeira mensagem usa PreKey,
-            // a resposta estabelece inbound, mas só a terceira mensagem faz o
-            // outbound ter their_ratchet_key disponível.
+            // CRITICAL: In the Olm Double Ratchet protocol, `their_ratchet_key` on the
+            // outbound is only populated when we send a SECOND message AFTER receiving
+            // the peer's reply. The first message uses the PreKey; the reply establishes
+            // the inbound; only the third message causes the outbound to have
+            // `their_ratchet_key` available.
             {
                 let sender = self.members.get_mut(sender_id)
                     .context("Sender não encontrado")?;
@@ -414,7 +412,7 @@ impl MatrixRoom {
                 vlog!(VerbosityLevel::Debug, "      └─ peer_key ANTES 3ª msg: {} -> {} = {}", 
                      sender_id, receiver_id, has_peer_before);
                 
-                // Esta encrypt fará o outbound processar their_ratchet_key!
+                // This encrypt call causes the outbound to process their_ratchet_key.
                 let _encrypted_third = sender.crypto.olm_encrypt(outbound, test_message);
                 
                 // Verificar has_peer_key DEPOIS da terceira mensagem
@@ -438,9 +436,8 @@ impl MatrixRoom {
         Ok(())
     }
 
-    /// Cria sessões Megolm para todos os membros (cada membro pode enviar)
-    /// Cria sessões Megolm apenas para senders especificados
-    /// Se active_senders estiver vazio, cria para TODOS os membros (modo multi-sender completo)
+    /// Creates Megolm sessions for all members (each member may send).
+    /// If `active_senders` is empty, sessions are created for ALL members (full multi-sender mode).
     pub fn create_sessions_for_senders(&mut self, active_senders: &[String]) -> Result<()> {
         let sender_list = if active_senders.is_empty() {
             self.members.keys().cloned().collect()
@@ -450,9 +447,9 @@ impl MatrixRoom {
         
         vlog!(VerbosityLevel::Verbose, "   - Criando sessões Megolm para {} sender(s)...", sender_list.len());
         
-        // REGISTRAR ACTIVE SENDERS: Para contabilizar apenas suas métricas
-        // Sessões Olm serão criadas eagerly (N×(N-1) para PQXDH), mas só contamos
-        // bandwidth/tempo das que pertencem aos senders ativos
+        // Register active senders so only their metrics are counted.
+        // Olm sessions will be created eagerly (N×(N-1) for PQXDH), but only
+        // those belonging to active senders are measured.
         self.active_senders.clear();
         for sender in &sender_list {
             self.active_senders.insert(sender.clone());
@@ -462,46 +459,46 @@ impl MatrixRoom {
         self.in_setup_phase = true;
 
         // ========================================================================
-        // TIMING: Iniciar cronômetro GLOBAL para Agreement + Initial Distribution
+        // TIMING: Start global timer for Agreement + Initial Distribution.
         // ========================================================================
         let start_time_total = std::time::Instant::now();
         let start_time_agreement = std::time::Instant::now();
         
         let member_ids: Vec<String> = self.members.keys().cloned().collect();
         
-        // REFATORAÇÃO: Alinhamento com Matrix real (ToDeviceRequest)
-        // Cada sender cria 1 batch com N-1 chaves cifradas e "envia" como 1 operação
-        // Isso simula o comportamento do ToDeviceRequest (1 HTTP POST com todas as keys)
-        // ao invés do modelo P2P anterior (N-1 sends individuais por sender)
-        
-        // IMPORTANTE: Apenas senders ativos criam sessões outbound
-        // Isso reflete a experiência real do usuário - apenas paga overhead das suas próprias sessões
+        // Alignment with real Matrix (ToDeviceRequest):
+        // each sender creates 1 batch with N-1 encrypted keys and "sends" it as 1 operation,
+        // simulating ToDeviceRequest (1 HTTP POST with all keys)
+        // instead of the previous P2P model (N-1 individual sends per sender).
+
+        // Only active senders create outbound sessions.
+        // This reflects the real user experience — each user only pays for their own sessions.
         for sender_id in &sender_list {
             // ========================================================================
-            // FASE 1: AGREEMENT - Garantir sessões Olm existem (PQXDH/3DH handshake)
+            // PHASE 1: AGREEMENT — ensure Olm sessions exist (PQXDH/3DH handshake).
             // ========================================================================
             for receiver_id in &member_ids {
                 if sender_id != receiver_id {
-                    // Criar sessões Olm (Agreement phase)
+                    // Create Olm sessions (agreement phase).
                     self.ensure_olm_session(sender_id, receiver_id)?;
                 }
             }
         }
         
         // ========================================================================
-        // TIMING: Finalizar Agreement (TODAS as sessões Olm criadas)
+        // TIMING: Agreement complete (all Olm sessions established).
         // ========================================================================
         let agreement_time = start_time_agreement.elapsed().as_secs_f64() * 1000.0;
         self.time_agreement_ms = agreement_time;
         vlog!(VerbosityLevel::Normal, "   [AGREEMENT] Todas sessões Olm estabelecidas em {:.2}ms", agreement_time);
         
         // ========================================================================
-        // FASE 2: INITIAL DISTRIBUTION - Distribuir chaves Megolm via Olm
+        // PHASE 2: INITIAL DISTRIBUTION — send Megolm keys over Olm.
         // ========================================================================
         let start_time_initial_dist = std::time::Instant::now();
         
         for sender_id in &sender_list {
-            // Criar sessão Megolm outbound para este sender
+            // Create an outbound Megolm session for this sender.
             let sender = self.members.get_mut(sender_id)
                 .context("Sender não encontrado")?;
             
@@ -513,7 +510,7 @@ impl MatrixRoom {
             
             for receiver_id in &member_ids {
                 if sender_id != receiver_id {
-                    // Criptografar chave Megolm para este receiver (via sessão Olm já criada)
+                    // Encrypt the Megolm key for this receiver (via the already-established Olm session).
                     match self.encrypt_megolm_key_via_olm_multi_sender(sender_id, &session_key, receiver_id) {
                         Ok(encrypted_key) => {
                             batch_encrypted_keys.push((receiver_id.clone(), encrypted_key));
@@ -525,10 +522,10 @@ impl MatrixRoom {
                 }
             }
 
-            // "SEND": Simula 1 ToDeviceRequest com todas as N-1 chaves cifradas
-            // No Matrix real: 1 HTTP POST ao servidor com batch de keys
-            // Aqui: a bandwidth já foi contabilizada em encrypt_megolm_key_via_olm_multi_sender
-            // (não precisamos somar novamente - cada encrypt já incrementa bandwidth_initial_distribution)
+            // "SEND": Simulates 1 ToDeviceRequest with all N-1 encrypted keys.
+            // In real Matrix: 1 HTTP POST to the server with a batch of keys.
+            // Here: bandwidth was already accounted for in encrypt_megolm_key_via_olm_multi_sender
+            // (no need to sum again — each encrypt already increments bandwidth_initial_distribution).
 
             // RECEIVE: Cada receiver descriptografa sua chave
             for (receiver_id, encrypted_key) in batch_encrypted_keys {
@@ -545,13 +542,13 @@ impl MatrixRoom {
                 }
             }
 
-            // Armazenar sessão outbound
+            // Store the outbound session.
             self.sender_sessions.insert(sender_id.clone(), megolm_outbound);
             self.message_count_per_sender.insert(sender_id.clone(), 0);
         }
         
         // ========================================================================
-        // TIMING: Finalizar Initial Distribution
+        // TIMING: Initial Distribution complete.
         // ========================================================================
         let initial_dist_time = start_time_initial_dist.elapsed().as_secs_f64() * 1000.0;
         self.time_initial_distribution_ms = initial_dist_time;
@@ -566,31 +563,31 @@ impl MatrixRoom {
         Ok(())
     }
     
-    /// Cria sessões Megolm para todos os membros (compatibilidade - modo multi-sender completo)
+    /// Creates Megolm sessions for all members (compatibility — full multi-sender mode).
     pub fn create_sessions(&mut self) -> Result<()> {
         self.create_sessions_for_senders(&[])
     }
-    
-    /// Warm-up bidirecional: Estabelece peer_key em todas as sessões Olm
-    /// 
-    /// OBJETIVO: Preparar sessões Olm para forced_ratchet funcionar
-    /// 
-    /// PROBLEMA RESOLVIDO:
-    /// - Sessões Olm recém-criadas são "lazy" (sem peer_key estabelecido)
-    /// - forced_ratchet_advance() precisa de peer_key para executar KEM
-    /// - Distribuição de chaves Megolm é UNIDIRECIONAL (não estabelece peer_key)
-    /// - vodozemac só marca has_received_message() em sessões INBOUND (que descriptografam)
-    /// 
-    /// SOLUÇÃO (Warm-up bidirecional):
-    /// - Cada par (A, B) troca mensagens dummy em AMBAS as direções:
-    ///   1. A → B: envia "warmup_A_to_B"
-    ///   2. B descriptografa → peer_key estabelecido em sessão INBOUND de B (recebe de A)
-    ///   3. B → A: envia "warmup_B_to_A"  
-    ///   4. A descriptografa → peer_key estabelecido em sessão INBOUND de A (recebe de B)
-    /// - Após warm-up: Todas sessões INBOUND têm peer_key estabelecido
-    /// - forced_ratchet verifica peer_key no INBOUND do receiver antes de executar KEM
-    /// 
-    /// TIMING: Deve ser chamado APÓS create_sessions_for_senders() e ANTES da primeira rotação
+
+    /// Bidirectional warm-up: establishes `peer_key` in all Olm sessions.
+    ///
+    /// GOAL: Prepare Olm sessions so `forced_ratchet` works correctly.
+    ///
+    /// PROBLEM SOLVED:
+    /// - Freshly created Olm sessions are "lazy" (no peer_key set).
+    /// - `forced_ratchet_advance()` needs peer_key to perform the KEM.
+    /// - Megolm key distribution is UNIDIRECTIONAL (does not set peer_key).
+    /// - vodozemac only marks `has_received_message()` on INBOUND sessions (receivers).
+    ///
+    /// SOLUTION (bidirectional warm-up):
+    /// - Each pair (A, B) exchanges dummy messages in BOTH directions:
+    ///   1. A → B: sends "warmup_A_to_B".
+    ///   2. B decrypts → peer_key set on B's INBOUND session (receives from A).
+    ///   3. B → A: sends "warmup_B_to_A".
+    ///   4. A decrypts → peer_key set on A's INBOUND session (receives from B).
+    /// - After warm-up: all INBOUND sessions have peer_key set.
+    /// - `forced_ratchet` checks peer_key on the receiver's INBOUND before executing the KEM.
+    ///
+    /// TIMING: Must be called AFTER `create_sessions_for_senders()` and BEFORE the first rotation.
     pub fn warmup_olm_sessions_bidirectional(&mut self) -> Result<()> {
         vlog!(VerbosityLevel::Normal, "   - [WARMUP] Estabelecendo peer_key bidirecionalmente em todas as sessões Olm");
         
@@ -598,7 +595,7 @@ impl MatrixRoom {
         let mut warmup_sent = 0;
         let mut warmup_received = 0;
         
-        // Fase 0: Coletar pares (sender, receiver) onde sessão outbound já existe
+        // Phase 0: Collect (sender, receiver) pairs where an outbound session already exists.
         let mut session_pairs: Vec<(String, String)> = Vec::new();
         for (sender_id, sender) in self.members.iter() {
             for (receiver_id, olm_pair) in sender.olm_sessions.iter() {
@@ -608,7 +605,7 @@ impl MatrixRoom {
             }
         }
         
-        // Fase 1: Enviar mensagens dummy em todas as direções identificadas
+        // Phase 1: Send dummy messages in every identified direction.
         for (sender_id, receiver_id) in session_pairs {
             let warmup_payload = format!("warmup_{}_{}", sender_id, receiver_id);
             
@@ -639,9 +636,9 @@ impl MatrixRoom {
         
         vlog!(VerbosityLevel::Debug, "      └─ [WARMUP] {} mensagens recebidas", warmup_received);
         
-        // Fase 3: Verificar quantas sessões outbound têm peer_key estabelecido
-        // CORREÇÃO: Para sessão A→B, peer_key é estabelecido na sessão INBOUND de B (que recebe de A)
-        // Precisamos verificar se B.inbound(A) tem has_received_message() == true
+        // Phase 3: Count how many outbound sessions have a peer_key established.
+        // FIX: For session A→B, peer_key is established on B's INBOUND session (receiving from A).
+        // We must check if B.inbound(A) has has_received_message() == true.
         let mut sessions_with_peer_key = 0;
         let mut sessions_total = 0;
         let mut sessions_pqc_peer = 0;
@@ -652,12 +649,12 @@ impl MatrixRoom {
                 if olm_pair.outbound.is_some() {
                     sessions_total += 1;
                     
-                    // Verificar se o RECEIVER tem sessão INBOUND do SENDER com peer_key
+                    // Check whether the RECEIVER has an INBOUND session from the SENDER with peer_key set.
                     let has_peer_key = if let Some(receiver) = self.members.get(receiver_id) {
                         if let Some(receiver_pair) = receiver.olm_sessions.get(sender_id) {
                             if let Some(ref inbound) = receiver_pair.inbound {
                                 let has_classic = inbound.has_received_message_classic();
-                                let has_pqc = inbound.has_peer_key(); // verifica camada PQC também
+                                let has_pqc = inbound.has_peer_key(); // also checks the PQC layer.
                                 
                                 if has_classic {
                                     sessions_classic_peer += 1;
@@ -723,27 +720,27 @@ impl MatrixRoom {
         let receiver = self.members.get_mut(receiver_id)
             .context("Receptor não encontrado")?;
 
-        // Verificar se já existe sessão Olm inbound estabelecida
+        // Check whether an established Olm inbound session already exists.
         if let Some(existing_pair) = receiver.olm_sessions.get_mut(sender_id) {
             if let Some(inbound_session) = existing_pair.get_inbound_mut() {
-                // Tentar usar sessão inbound existente
+                // Try to use the existing inbound session.
                 match receiver.crypto.olm_decrypt(inbound_session, encrypted) {
                     Ok(decrypted_bytes) => {
                         return Ok(decrypted_bytes);
                     }
                     Err(e) => {
-                        // Falha na sessão existente - pode ser PreKeyMessage nova
+                        // Existing session failed — may be a new PreKeyMessage.
                         vlog!(VerbosityLevel::Debug, "      └─ [WARMUP] Sessão inbound existente falhou, tentando criar nova: {:?}", e);
                     }
                 }
             }
         }
 
-        // Se não tem sessão inbound ou falhou, criar nova a partir de PreKeyMessage
+        // No inbound session found or it failed; create a new one from the PreKeyMessage.
         let (mut inbound_session, _) = receiver.crypto.create_inbound_session(&sender_identity_keys.curve25519, encrypted)?;
         let decrypted_bytes = receiver.crypto.olm_decrypt(&mut inbound_session, encrypted)?;
 
-        // Armazenar sessão inbound criada
+        // Store the newly created inbound session.
         receiver.olm_sessions
             .entry(sender_id.to_string())
             .or_insert_with(OlmSessionPair::new)
