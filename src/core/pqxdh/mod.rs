@@ -1,17 +1,17 @@
-// Protocolo PQXDH para Acordo de Chaves Matrix Pós-Quântico
-//
-// Este módulo implementa o protocolo PQXDH (Post-Quantum Extended Diffie-Hellman)
-// para estabelecimento de chaves híbridas no contexto Matrix.
-//
-// O PQXDH estende o protocolo X3DH do Signal com resistência quântica através
-// de algoritmos KEM (Key Encapsulation Mechanism) CRYSTALS-Kyber (Round 3) integrados.
-//
-// Módulos:
-// - message:  Tipos de dados (ZeroizingKyberKey, SignedX25519Prekey, MatrixPqxdhInitMessage, etc.)
-// - user:     MatrixUser struct e implementação
-// - protocol: Funções de protocolo (init_pqxdh, complete_pqxdh)
+//! PQXDH Key Agreement Protocol for Matrix.
+//!
+//! Implements the PQXDH (Post-Quantum Extended Diffie-Hellman) protocol for
+//! hybrid key establishment in the Matrix context.
+//!
+//! PQXDH extends Signal's X3DH with quantum resistance by integrating
+//! CRYSTALS-Kyber (Round 3) KEM (Key Encapsulation Mechanism) algorithms.
+//!
+//! Submodules:
+//! - `message`:  Data types (`ZeroizingKyberKey`, `SignedX25519Prekey`, `MatrixPqxdhInitMessage`, etc.)
+//! - `user`:     `MatrixUser` struct and implementation.
+//! - `protocol`: Protocol functions (`init_pqxdh`, `complete_pqxdh`).
 
-// Re-exports de API pública — itens podem não ter consumidores dentro deste crate binário.
+// Public API re-exports — items may have no consumers within this binary crate.
 #![allow(unused_imports)]
 
 pub mod message;

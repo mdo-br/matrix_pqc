@@ -1,13 +1,13 @@
-// Tipos de dados do protocolo PQXDH: chaves, mensagens e wrappers de zeroização
+//! PQXDH protocol data types: keys, messages, and zeroization wrappers.
 
 use pqcrypto_kyber::kyber1024::SecretKey as KyberSecretKey;
 use serde::{Serialize, Deserialize};
 use crate::utils::serde_helpers;
 
-/// Wrapper para KyberSecretKey com zeroização manual no Drop.
+/// Wraps `KyberSecretKey` with manual zeroization on `Drop`.
 ///
-/// Necessário porque pqcrypto-kyber não implementa Zeroize nativamente,
-/// diferente de x25519-dalek e ed25519-dalek que já possuem suporte built-in.
+/// `pqcrypto-kyber` does not implement `Zeroize`, unlike the `dalek` crates which
+/// provide it natively. This wrapper overwrites key memory when dropped.
 pub(super) struct ZeroizingKyberKey(pub(super) KyberSecretKey);
 
 impl Drop for ZeroizingKyberKey {
@@ -32,7 +32,7 @@ impl AsRef<KyberSecretKey> for ZeroizingKyberKey {
     }
 }
 
-/// Prekey X25519 assinada para Matrix
+/// Signed X25519 prekey for Matrix.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct SignedX25519Prekey {
     pub key_id: String,
@@ -42,7 +42,7 @@ pub struct SignedX25519Prekey {
     pub signature: [u8; 64],
 }
 
-/// Prekey CRYSTALS-Kyber assinada para Matrix
+/// Signed CRYSTALS-Kyber prekey for Matrix.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct SignedKyberPrekey {
     pub key_id: String,
@@ -52,14 +52,14 @@ pub struct SignedKyberPrekey {
     pub signature: [u8; 64],
 }
 
-/// Mensagem de inicialização PQXDH
+/// PQXDH initialisation message sent by the initiator to the responder.
 ///
-/// Transporta todos os dados necessários para completar o acordo de chaves,
-/// incluindo chaves efêmeras, ciphertext KEM e metadados de contexto.
+/// Carries all data needed to complete the key agreement, including ephemeral keys,
+/// the Kyber KEM ciphertext, and prekey IDs used in this handshake.
 ///
-/// Inclui DUAS chaves de identidade do remetente (modelo vodozemac):
-/// - `sender_signing_key`: Ed25519 para verificação de assinaturas
-/// - `sender_dh_public_key`: Curve25519 independente para operações DH
+/// Includes two identity keys following the vodozemac model:
+/// - `sender_signing_key`: Ed25519, used only for signature verification.
+/// - `sender_dh_public_key`: independent Curve25519, used for DH operations.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MatrixPqxdhInitMessage {
     pub sender_user_id: String,
@@ -78,7 +78,7 @@ pub struct MatrixPqxdhInitMessage {
     pub used_one_time_key_id: Option<String>,
 }
 
-/// Resultado da inicialização PQXDH (chave de sessão + mensagem para o destinatário)
+/// Output of a successful PQXDH initialisation: session key and message for the responder.
 pub struct MatrixPqxdhOutput {
     pub session_key: [u8; 32],
     pub init_message: MatrixPqxdhInitMessage,
