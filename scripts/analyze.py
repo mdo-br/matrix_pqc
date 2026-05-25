@@ -1,34 +1,34 @@
 #!/usr/bin/env python3
 """
-Análise estatística pareada e geração de artefatos do artigo SBRC 2026.
+Paired statistical analysis and article artifact generation for SBRC 2026.
 
-Script unificado que realiza:
-  1. Análise estatística pareada (Classical vs Hybrid)
-     - Bandwidth por fase (Agreement, Initial Distribution, Rotation)
-     - Composição PQC (proporção Classical vs PQC)
-     - Métricas de rotação (mensagens, forçamentos)
-     - Tempo por fase (Setup, Rotation)
-     - Correlação Bandwidth × Tempo
-  2. Geração de artefatos referenciados no artigo
-     - fig_overhead_comparison_bandwidth_time.png  (Figura 3)
-     - fig_policy_tradeoff_smallgroup.png          (Figura 4)
-     - tab_detailed_phase_room_policy.tex          (Tabela 3)
-  3. Resumo executivo e CSV estruturado
+Unified script that performs:
+  1. Paired statistical analysis (Classical vs Hybrid)
+     - Bandwidth per phase (Agreement, Initial Distribution, Rotation)
+     - PQC composition (proportion Classical vs PQC)
+     - Rotation metrics (messages, forced advances)
+     - Time per phase (Setup, Rotation)
+     - Bandwidth × Time correlation
+  2. Generation of artifacts referenced in the article
+     - fig_overhead_comparison_bandwidth_time.png  (Figure 3)
+     - fig_policy_tradeoff_smallgroup.png          (Figure 4)
+     - tab_detailed_phase_room_policy.tex          (Table 3)
+  3. Executive summary and structured CSV
 
-Testes estatísticos:
-  - Normalidade: Shapiro-Wilk
-  - Pareado: paired t-test (normal) ou Wilcoxon signed-rank (não-normal)
-  - Effect size: Cohen's d (paramétrico) ou Cliff's delta (não-paramétrico)
-  - IC 95%: t-Student (normal) ou Bootstrap 10.000 reamostragens (não-normal)
-  - Correção múltipla: Holm-Bonferroni
+Statistical tests:
+  - Normality: Shapiro-Wilk
+  - Paired: paired t-test (normal) or Wilcoxon signed-rank (non-normal)
+  - Effect size: Cohen's d (parametric) or Cliff's delta (non-parametric)
+  - 95% CI: t-Student (normal) or Bootstrap with 10,000 resamples (non-normal)
+  - Multiple comparison correction: Holm-Bonferroni
 
-Uso:
+Usage:
     python scripts/analyze.py results/user_profile_runs_TIMESTAMP_all_policies.csv
 
-Saídas:
-    results/*.paired_analysis.csv          — CSV estruturado com resultados
-    tables_and_plots/fig_*.png             — Figuras do artigo
-    tables_and_plots/tab_*.tex             — Tabelas do artigo
+Outputs:
+    results/*.paired_analysis.csv          — structured CSV with results
+    tables_and_plots/fig_*.png             — article figures
+    tables_and_plots/tab_*.tex             — article tables
 """
 
 import argparse
@@ -43,26 +43,26 @@ import pandas as pd
 import seaborn as sns
 from scipy import stats
 
-# Modo verboso global (definido em main() via argparse)
+# Global verbose flag (set in main() via argparse).
 VERBOSE = False
 
 
 def vprint(*args, **kwargs):
-    """Imprime apenas no modo verbose."""
+    """Print only in verbose mode."""
     if VERBOSE:
         print(*args, **kwargs)
 
-# Estilo de gráficos
+# Plot style.
 plt.style.use('seaborn-v0_8-darkgrid')
 sns.set_palette("husl")
 
 
 # =============================================================================
-# Funções utilitárias estatísticas
+# Statistical utility functions
 # =============================================================================
 
 def shapiro_test(data, alpha=0.05):
-    """Testa normalidade com Shapiro-Wilk."""
+    """Test normality using Shapiro-Wilk."""
     if len(data) < 3:
         return False, np.nan, "n < 3 (insuficiente)"
     if len(data) > 5000:
@@ -74,7 +74,7 @@ def shapiro_test(data, alpha=0.05):
 
 
 def cohens_d(group1, group2):
-    """Cohen's d (effect size paramétrico)."""
+    """Compute Cohen's d (parametric effect size)."""
     n1, n2 = len(group1), len(group2)
     var1, var2 = np.var(group1, ddof=1), np.var(group2, ddof=1)
     pooled_std = np.sqrt(((n1 - 1) * var1 + (n2 - 1) * var2) / (n1 + n2 - 2))
@@ -84,7 +84,7 @@ def cohens_d(group1, group2):
 
 
 def cliffs_delta(group1, group2):
-    """Cliff's delta (effect size não-paramétrico)."""
+    """Compute Cliff's delta (non-parametric effect size)."""
     n1, n2 = len(group1), len(group2)
     dominance = sum(
         sum(1 for b in group2 if a > b) - sum(1 for b in group2 if a < b)
@@ -94,7 +94,7 @@ def cliffs_delta(group1, group2):
 
 
 def bootstrap_ci_median(data, confidence=0.95, n_bootstrap=10000):
-    """IC bootstrap para mediana."""
+    """Compute bootstrap confidence interval for the median."""
     if len(data) < 2:
         return np.nan, np.nan
     rng = np.random.RandomState(42)
@@ -105,7 +105,7 @@ def bootstrap_ci_median(data, confidence=0.95, n_bootstrap=10000):
 
 
 def holm_bonferroni_correction(p_values):
-    """Correção Holm-Bonferroni para comparações múltiplas."""
+    """Apply Holm-Bonferroni correction for multiple comparisons."""
     p_values = np.asarray(p_values, dtype=float)
     n = len(p_values)
     sorted_indices = np.argsort(p_values)
@@ -120,7 +120,7 @@ def holm_bonferroni_correction(p_values):
 
 
 def detect_outliers_iqr(data, threshold=1.5):
-    """Detecta outliers pelo método IQR."""
+    """Detect outliers using the IQR method."""
     q1 = np.percentile(data, 25)
     q3 = np.percentile(data, 75)
     iqr = q3 - q1
@@ -128,11 +128,11 @@ def detect_outliers_iqr(data, threshold=1.5):
 
 
 # =============================================================================
-# Análise pareada por tipo de sala
+# Paired analysis by room type
 # =============================================================================
 
 def paired_analysis_by_room_type(df, metric, metric_name):
-    """Análise pareada agrupada por tipo de sala."""
+    """Run paired analysis grouped by room type."""
     results = []
     if 'room_type' not in df.columns:
         print(f"AVISO: Coluna 'room_type' não encontrada")
@@ -150,7 +150,6 @@ def paired_analysis_by_room_type(df, metric, metric_name):
         hybrid = hybrid[:n_pairs]
         diffs = hybrid - classical
 
-        # Remover outliers apenas para métricas de tempo
         if 'bandwidth' in metric or 'bytes' in metric:
             diffs_clean, classical_clean, hybrid_clean = diffs, classical, hybrid
             n_outliers = 0
@@ -173,14 +172,14 @@ def paired_analysis_by_room_type(df, metric, metric_name):
         if len(diffs_clean) >= 3 and np.ptp(diffs_clean) > 0:
             _, p_shapiro = stats.shapiro(diffs_clean)
         elif len(diffs_clean) >= 3:
-            p_shapiro = 1.0  # range zero → dados determinísticos → trata como normal
+            p_shapiro = 1.0  # zero range → deterministic data → treat as normal
         else:
             p_shapiro = 0
         is_normal = p_shapiro > 0.05 if p_shapiro is not None else False
 
         if np.ptp(diffs_clean) == 0:
-            # Dados determinísticos: variância zero, nenhum teste inferencial aplicável.
-            # Diferença constante não-nula → p=0 (distinção perfeita). Diferença zero → p=1.
+            # Deterministic data: zero variance, no inferential test applicable.
+            # Non-zero constant difference → p=0 (perfect distinction). Zero diff → p=1.
             p_value = 0.0 if diffs_clean[0] != 0 else 1.0
             test_name = "deterministic"
             effect_size = 0.0
@@ -191,7 +190,7 @@ def paired_analysis_by_room_type(df, metric, metric_name):
             effect_size = cohens_d(classical_clean, hybrid_clean)
             effect_label = "Cohen's d"
         else:
-            # zero_method='zsplit' distribui zeros igualmente sem gerar RuntimeWarning
+            # zero_method='zsplit' distributes ties evenly without raising RuntimeWarning.
             _, p_value = stats.wilcoxon(hybrid_clean, classical_clean,
                                         alternative='two-sided', zero_method='zsplit')
             test_name = "Wilcoxon"
@@ -220,11 +219,11 @@ def paired_analysis_by_room_type(df, metric, metric_name):
 
 
 # =============================================================================
-# Análise 1: Bandwidth por fase
+# Analysis 1: Bandwidth by phase
 # =============================================================================
 
 def analyze_bandwidth_by_phase(df):
-    """Análise de largura de banda por fase (Agreement, Initial Distribution, Rotation)."""
+    """Analyze bandwidth by phase (Agreement, Initial Distribution, Rotation)."""
     vprint("\n" + "=" * 80)
     vprint("ANÁLISE DE LARGURA DE BANDA POR FASE")
     vprint("=" * 80)
@@ -288,11 +287,11 @@ def analyze_bandwidth_by_phase(df):
 
 
 # =============================================================================
-# Análise 2: Composição PQC
+# Analysis 2: PQC composition
 # =============================================================================
 
 def analyze_pqc_components(df):
-    """Análise de decomposição de bandwidth em componentes Classical e PQC."""
+    """Analyze bandwidth decomposition into Classical and PQC components."""
     vprint("\n" + "=" * 80)
     vprint("ANÁLISE DE COMPONENTES PQC")
     vprint("=" * 80)
@@ -348,11 +347,11 @@ def analyze_pqc_components(df):
 
 
 # =============================================================================
-# Análise 3: Métricas de rotação
+# Analysis 3: Rotation metrics
 # =============================================================================
 
 def analyze_rotation_metrics(df):
-    """Análise de métricas operacionais de rotação."""
+    """Analyze operational rotation metrics."""
     vprint("\n" + "=" * 80)
     vprint("ANÁLISE DE MÉTRICAS DE ROTAÇÃO")
     vprint("=" * 80)
@@ -403,11 +402,11 @@ def analyze_rotation_metrics(df):
 
 
 # =============================================================================
-# Análise 4: Tempo por fase
+# Analysis 4: Time by phase
 # =============================================================================
 
 def analyze_time_by_phase(df):
-    """Análise de tempo por fase (Setup, Rotation)."""
+    """Analyze processing time by phase (Setup, Rotation)."""
     vprint("\n" + "=" * 80)
     vprint("ANÁLISE DE TEMPO POR FASE")
     vprint("=" * 80)
@@ -473,11 +472,11 @@ def analyze_time_by_phase(df):
 
 
 # =============================================================================
-# Análise 5: Correlação Bandwidth × Tempo
+# Analysis 5: Bandwidth × Time correlation
 # =============================================================================
 
 def analyze_bandwidth_time_correlation(df, results_bw, results_time):
-    """Correlação entre overhead de bandwidth e de tempo."""
+    """Correlate bandwidth overhead and time overhead across phases."""
     vprint("\n" + "=" * 80)
     vprint("ANÁLISE DE CORRELAÇÃO: BANDWIDTH vs TEMPO")
     vprint("=" * 80)
@@ -532,12 +531,12 @@ def analyze_bandwidth_time_correlation(df, results_bw, results_time):
 
 
 # =============================================================================
-# Resumo executivo
+# Executive summary
 # =============================================================================
 
 def generate_summary(results_bw, results_comp, results_rot,
                      results_time=None, correlations=None, df=None):
-    """Resumo executivo consolidado."""
+    """Print a consolidated executive summary of all claims."""
     print("\n" + "=" * 80)
     print("RESUMO — VERIFICAÇÃO DAS REIVINDICAÇÕES DO ARTIGO")
     print("=" * 80)
@@ -550,7 +549,7 @@ def generate_summary(results_bw, results_comp, results_rot,
     _n_label   = {'DM': 2, 'SmallGroup': 7, 'MediumGroup': 25, 'LargeChannel': 150}
     _room_order = ['DM', 'SmallGroup', 'MediumGroup', 'LargeChannel']
 
-    # === REIVINDICAÇÃO 1: Overhead de Largura de Banda ===
+    # === CLAIM 1: Bandwidth Overhead ===
     print("\n=== REIVINDICAÇÃO 1: Overhead de Largura de Banda ===")
     for phase in ['Agreement', 'Initial_Distribution', 'Rotation']:
         if phase not in results_bw:
@@ -570,7 +569,7 @@ def generate_summary(results_bw, results_comp, results_rot,
             c, h, oh = row['classical_median'], row['hybrid_median'], row['overhead_pct']
             print(f"    {rt:15s} (N={n:>3}): {_fmt_bw(c):>10s} → {_fmt_bw(h):>10s}  ({oh:+.1f}%)")
 
-    # === REIVINDICAÇÃO 2: Overhead de Tempo de Processamento ===
+    # === CLAIM 2: Processing Time Overhead ===
     print("\n=== REIVINDICAÇÃO 2: Overhead de Tempo de Processamento ===")
     if results_time:
         for phase in ['Setup', 'Rotation']:
@@ -604,12 +603,12 @@ def generate_summary(results_bw, results_comp, results_rot,
     else:
         print("  (dados de tempo não disponíveis)")
 
-    # === REIVINDICAÇÃO 3: Plano de Dados Inalterado ===
+    # === CLAIM 3: Data Plane Unchanged ===
     print("\n=== REIVINDICAÇÃO 3: Plano de Dados Inalterado ===")
     if results_time and 'Setup' in results_time:
         df_setup = results_time.get('Setup')
-        # Proxy: overhead de criptografia Megolm não existe como coluna separada de tempo
-        # — reportado via dados de bandwidth Steady-state se disponível
+        # Proxy: Megolm encryption overhead has no separate time column
+        # — reported via steady-state bandwidth data when available.
         if 'Steady_State' in results_bw:
             df_ss = results_bw['Steady_State']
             if isinstance(df_ss, pd.DataFrame) and len(df_ss) > 0:
@@ -623,7 +622,7 @@ def generate_summary(results_bw, results_comp, results_rot,
         else:
             print("  Steady-state: ≈0%  [n.s.]  (plano de dados não afetado por PQC)")
 
-    # === REIVINDICAÇÃO 4: Escala O(N × R) ===
+    # === CLAIM 4: O(N × R) Scaling ===
     print("\n=== REIVINDICAÇÃO 4: Escala O(N × R) ===")
     if results_rot:
         ratio = results_rot.get('ratio', 0)
@@ -646,7 +645,7 @@ def generate_summary(results_bw, results_comp, results_rot,
             n = n_label.get(rt, '?')
             print(f"    {rt:15s} (N={n:>3}): {oh_disp:8.2f} {unit}")
 
-    # === REIVINDICAÇÃO 5: Trade-off Segurança vs Custo ===
+    # === CLAIM 5: Security vs Cost Trade-off ===
     print("\n=== REIVINDICAÇÃO 5: Trade-off Segurança vs Custo ===")
     if df is not None and 'bandwidth_rotation' in df.columns:
         policies = [('Paranoid', 25), ('PQ3', 50), ('Balanced', 100), ('Relaxed', 250)]
@@ -670,11 +669,11 @@ def generate_summary(results_bw, results_comp, results_rot,
 
 
 # =============================================================================
-# Geração de CSV estruturado
+# Structured CSV output
 # =============================================================================
 
 def save_paired_analysis_csv(results_bw, csv_path):
-    """Salva CSV estruturado com resultados da análise pareada."""
+    """Save a structured CSV with paired analysis results."""
     rows = []
     for phase_name, df_phase in results_bw.items():
         if not isinstance(df_phase, pd.DataFrame) or len(df_phase) == 0:
@@ -706,13 +705,13 @@ def save_paired_analysis_csv(results_bw, csv_path):
 
 
 # =============================================================================
-# Geração de artefatos do artigo
+# Article artifact generation
 # =============================================================================
 
 def generate_figure_overhead_bw_vs_time(df, output_dir):
     """
-    Figura 3 do artigo: gráfico de barras horizontais duplo
-    comparando overhead de Bandwidth (esquerda) vs Tempo (direita) por fase.
+    Figure 3 of the article: dual horizontal bar chart comparing bandwidth
+    overhead (left) vs time overhead (right) per phase.
     """
     output_file = output_dir / "fig_overhead_comparison_bandwidth_time.png"
     vprint(f"\n{'-' * 80}")
@@ -722,7 +721,7 @@ def generate_figure_overhead_bw_vs_time(df, output_dir):
     df_c = df[df['crypto_mode'] == 'Classical']
     df_h = df[df['crypto_mode'] == 'Hybrid']
 
-    # --- Bandwidth (mediana global — determinístico, proporcional a N) ---
+    # --- Bandwidth (global median — deterministic, proportional to N) ---
     setup_bw_c = (df_c['bandwidth_agreement'] + df_c['bandwidth_initial_distribution']).median()
     setup_bw_h = (df_h['bandwidth_agreement'] + df_h['bandwidth_initial_distribution']).median()
     rot_bw_c = df_c['bandwidth_rotation'].median()
@@ -736,7 +735,7 @@ def generate_figure_overhead_bw_vs_time(df, output_dir):
         ((enc_bw_h - enc_bw_c) / enc_bw_c * 100) if enc_bw_c > 0 else 0,
     ]
 
-    # --- Tempo (agregação balanceada: sum-of-medians por tipo de sala) ---
+    # --- Time (balanced aggregation: sum-of-medians per room type) ---
     _rt_order = ['DM', 'SmallGroup', 'MediumGroup', 'LargeChannel']
     room_types = [r for r in _rt_order if r in df['room_type'].unique()] if 'room_type' in df.columns else []
 
@@ -804,15 +803,15 @@ def generate_figure_overhead_bw_vs_time(df, output_dir):
 
 def generate_figure_policy_tradeoff(df, output_dir):
     """
-    Figura 4 do artigo: trade-off segurança vs custo para SmallGroup (N=7).
-    Barras = overhead de rotações, linha = janela de segurança.
+    Figure 4 of the article: security vs cost trade-off for SmallGroup (N=7).
+    Bars = rotation overhead, line = security window.
     """
     output_file = output_dir / "fig_policy_tradeoff_smallgroup.png"
     vprint(f"\n{'-' * 80}")
     vprint("Gerando Figura 4: Trade-off para SmallGroup (N=7)")
     vprint(f"{'-' * 80}")
 
-    # Derivar N do CSV
+    # Derive N from the CSV.
     df_small = df[df['room_type'] == 'SmallGroup']
     if len(df_small) == 0:
         vprint("AVISO: Nenhum dado de SmallGroup encontrado!")
@@ -900,7 +899,7 @@ def generate_figure_policy_tradeoff(df, output_dir):
 
 def generate_table_detailed_phase_room_policy(df, output_dir):
     """
-    Tabela 3 do artigo: overhead absoluto de BW e tempo por fase × sala × política.
+    Table 3 of the article: absolute BW and time overhead per phase × room × policy.
     """
     vprint(f"\n{'-' * 80}")
     vprint("Gerando Tabela 3: Overhead detalhado (Fase × Sala × Política)")
@@ -1002,11 +1001,11 @@ def main():
     vprint(f"\nArquivo: {csv_path}")
     vprint(f"Data: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
-    # Carregar CSV
+    # Load CSV.
     df = pd.read_csv(csv_path)
     vprint(f"\nDimensões: {df.shape[0]} linhas × {df.shape[1]} colunas")
 
-    # ── Parte 1: Análise estatística ──────────────────────────────────────
+    # ── Part 1: Statistical analysis ──────────────────────────────────────
     vprint("\n" + "█" * 80)
     vprint("█  PARTE 1: ANÁLISE ESTATÍSTICA PAREADA")
     vprint("█" * 80)
@@ -1023,13 +1022,13 @@ def main():
 
     generate_summary(results_bw, results_comp, results_rot, results_time, correlations, df=df)
 
-    # CSV estruturado
+    # Structured CSV output.
     vprint("\n" + "=" * 80)
     vprint("GERANDO CSV ESTRUTURADO")
     vprint("=" * 80)
     save_paired_analysis_csv(results_bw, csv_path)
 
-    # ── Parte 2: Artefatos do artigo ─────────────────────────────────────
+    # ── Part 2: Article artifacts ─────────────────────────────────────
     vprint("\n" + "█" * 80)
     vprint("█  PARTE 2: GERAÇÃO DE ARTEFATOS DO ARTIGO")
     vprint("█" * 80)
@@ -1038,7 +1037,7 @@ def main():
     generate_figure_policy_tradeoff(df, output_dir)
     generate_table_detailed_phase_room_policy(df, output_dir)
 
-    # ── Resumo final ─────────────────────────────────────────────────────
+    # ── Final summary ─────────────────────────────────────────────────────
     print(f"\n{'=' * 80}")
     print("[OK] ANÁLISE E ARTEFATOS GERADOS COM SUCESSO!")
     print(f"{'=' * 80}")
