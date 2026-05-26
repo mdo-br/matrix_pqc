@@ -1,9 +1,9 @@
-// Benchmark metrics structs and enums.
+//! Benchmark metrics structs and enums.
 
 use serde::{Deserialize, Serialize};
 use crate::protocols::room::RotationPolicy;
 
-/// Perfil de hardware do dispositivo cliente
+/// Hardware profile of the client device.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HardwareProfile {
     pub device_type: String,
@@ -16,7 +16,7 @@ pub struct HardwareProfile {
 }
 
 impl HardwareProfile {
-    /// Detecta automaticamente o perfil de hardware do sistema
+    /// Detects the hardware profile of the current system automatically.
     pub fn detect() -> Self {
         let hostname = hostname::get()
             .unwrap_or_else(|_| std::ffi::OsString::from("unknown"))
@@ -119,7 +119,7 @@ pub struct BandwidthMetrics {
     pub total_rx_bytes: usize,
 }
 
-/// Tipo de sala Matrix
+/// Matrix room type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RoomType {
     DirectMessage,
@@ -157,7 +157,7 @@ impl RoomType {
         }
     }
 
-    /// Mapeia RoomType para UsageScenario (para MessageGenerator)
+    /// Maps this room type to the corresponding `UsageScenario` for the message generator.
     pub fn to_usage_scenario(&self) -> super::workload::UsageScenario {
         match self {
             RoomType::DirectMessage => super::workload::UsageScenario::SmallChat,
@@ -245,7 +245,7 @@ pub struct RoomBenchmark {
     pub message_overhead_bytes: usize,
     pub total_bandwidth_bytes: usize,
 
-    // Overhead PQC por fase
+    // PQC overhead per phase.
     pub bandwidth_agreement: usize,
     pub bandwidth_agreement_classical: usize,
     pub bandwidth_agreement_pqc: usize,
