@@ -4,6 +4,12 @@
 
 **Artigo**: Submetido ao Simpósio Brasileiro de Redes de Computadores e Sistemas Distribuídos (SBRC 2026).
 
+> **Aviso: protótipo de pesquisa — não recomendado para produção**
+>
+> Este repositório reúne código, dados experimentais e scripts de análise disponibilizados como artefatos de pesquisa para avaliação no SBRC 2026. O objetivo é medir os overheads de tempo e largura de banda associados à integração PQC, incluindo as chaves PQC no acordo inicial e nas rotações.
+>
+> Os experimentos usam salas simuladas localmente, sem comunicação de rede ou homeserver (a banda é avaliada pela contabilização dos tamanhos das mensagens no simulador). O código é um protótipo experimental e **não recomendamos seu uso em produção ou para proteger comunicações reais**. Os resultados de desempenho não constituem uma validação de segurança da implementação.
+
 ## Resumo
 
 A computação quântica ameaça a criptografia assimétrica dos mensageiros com criptografia de ponta a ponta (E2EE), impulsionando a adoção de criptografia pós-quântica (PQC). Este estudo avalia a integração híbrida do CRYSTALS-Kyber no protocolo Matrix, estendendo o acordo de chaves (PQXDH com Kyber-1024) e o Double Ratchet (com Kyber-768) por meio de um *wrapper* sobre a biblioteca `vodozemac`. Testes experimentais com design pareado (30 repetições, 4 tipos de sala, 4 políticas de rotação) demonstram que o principal gargalo é a largura de banda, com overhead de +548% no *setup* e +252% nas rotações de chaves, enquanto o impacto na CPU e na experiência do usuário é negligenciável (≈16 ms a 100 ms por rotação). O custo das rotações escala como O(N × R), indicando que políticas de segurança rígidas tornam-se proibitivas em salas grandes e demandam estratégias adaptativas para equilibrar segurança temporal e consumo de rede.
